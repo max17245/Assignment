@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-assign
+  labels:
+    app: assign
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: assign
+  template:
+    metadata:
+      labels:
+        app: assign
+    spec:
+      containers:
+      - name: assign
+        image: ldespiarl/assignment-test:v1.0
+        ports:
+          - containerPort: 8080
+

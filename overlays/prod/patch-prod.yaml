@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-assign
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: assign
+  template:
+    metadata:
+      labels:
+        app: assign
+
