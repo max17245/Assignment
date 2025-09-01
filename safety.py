@@ -1,14 +1,17 @@
-from safety.safety import check
-from safety.formatter import report
+from fastapi import FastAPI
+from typing import Optional
 
-# Scan dependencies จาก requirements.txt
-vulnerabilities = check(
-    files=['requirements.txt'],  # ไฟล์ dependencies ของคุณ
-    key=None,                     # ใส่ API key ถ้ามี
-    cached=False,
-    ignore_ids=[]
-)
+app = FastAPI()
 
-# แสดงผลลัพธ์
-print("=== SCA Scan Result ===")
-print(report(vulnerabilities, full=True, lines=100))
+@app.get("/")
+def root():
+    return {"message": "API is running on https://api.myproject.com"}
+
+# GET endpoint: https://api.myproject.com/items/1?q=test
+@app.get("/items/{item_id}")
+def get_item(item_id: int, q: Optional[str] = None):
+    return {
+        "item_id": item_id,
+        "query": q,
+        "full_url": f"https://api.myproject.com/items/{item_id}?q={q}" if q else f"https://api.myproject.com/items/{item_id}"
+    }
