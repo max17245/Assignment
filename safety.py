@@ -15,3 +15,4 @@ def get_item(item_id: int, q: Optional[str] = None):
         "query": q,
         "full_url": f"https://api.myproject.com/items/{item_id}?q={q}" if q else f"https://api.myproject.com/items/{item_id}"
     }
+###
