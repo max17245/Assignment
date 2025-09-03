@@ -9,12 +9,19 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      # 1) Checkout
-      - name: Checkout
-        uses: actions/checkout@v3
+    permissions:
+      # required for all workflows
+      security-events: write
+      # only required for workflows in private repositories
+      actions: read
+      contents: read
 
-      # 2) Checkmarx One CLI
+    steps:
+      # Checkout source code
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # Checkmarx One CLI Scan
       - name: Checkmarx One CLI Action
         uses: checkmarx/ast-github-action@main
         with:
@@ -24,11 +31,11 @@ jobs:
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
 
-      # 3) เตรียมโฟลเดอร์ผลลัพธ์ KICS
+      # Prepare results folder for KICS
       - name: Mkdir results dir
         run: mkdir -p kics-results
 
-      # 4) KICS IaC Scan (ใช้แอ็กชันใหม่และ pin เวอร์ชัน)
+      # KICS IaC Scan
       - name: Run KICS Scan
         uses: checkmarx/kics-github-action@v2.1.13
         with:
@@ -36,10 +43,8 @@ jobs:
           platform_type: 'terraform'
           output_path: 'kics-results'
           output_formats: 'sarif'
-          # ถ้าต้องการให้ job ไม่ fail เมื่อเจอ findings ให้ใส่:
-          # ignore_on_exit: 'results'
 
-      # 5) อัปโหลด SARIF ไปที่ GitHub Security > Code scanning
+      # Upload SARIF file from KICS to GitHub Security tab
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
         with:
