@@ -73,8 +73,3 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: kics-results/results.sarif
-
-      # 7) แจ้งเตือนแบบสุภาพเมื่อไม่มีไฟล์ Terraform
-      - name: No Terraform files found
-        if: ${{ steps.iac.outputs.has_tf != 'true' }}
-        run: echo "Skip KICS: no *.tf files found."
