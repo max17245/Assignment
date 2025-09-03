@@ -1,21 +1,38 @@
-name: Checkmarx One Scan
+name: Security Scans
+
 on:
   push:
-    branches:
-      - main
-      - master
-      - dev
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Checkout source code
       - name: Checkout
         uses: actions/checkout@v2
+
+      # Checkmarx One CLI Scan
       - name: Checkmarx One CLI Action
-        uses: checkmarx/ast-github-action@main #Github Action version
+        uses: checkmarx/ast-github-action@main
         with:
           project_name: fluk-test
           cx_tenant: nfr-fusionadvantec-sg
-          base_uri: https://sng.ast.checkmarx.net/ 
+          base_uri: https://sng.ast.checkmarx.net/
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+
+      # KICS IaC Scan
+      - name: Run KICS Scan
+        uses: checkmarx/kics-action@v1.0
+        with:
+          path: 'terraform'
+          output_path: 'results.sarif'
+
+      # Upload KICS SARIF results to GitHub Security tab
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: results.sarif
