@@ -1,21 +1,63 @@
-name: Checkmarx One Scan
+# name: Checkmarx One Scan
+# on:
+#   push:
+#     branches:
+#       - main
+#       - master
+#       - dev
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v2
+#       - name: Checkmarx One CLI Action
+#         uses: checkmarx/ast-github-action@main #Github Action version
+#         with:
+#           project_name: fluk-test
+#           cx_tenant: nfr-fusionadvantec-sg
+#           base_uri: https://sng.ast.checkmarx.net/ 
+#           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+#           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+
+
+name: Checkmarx → GitHub Code Scanning
+
 on:
   push:
-    branches:
-      - main
-      - master
-      - dev
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write   # ต้องมีเพื่ออัปโหลด SARIF
+
 jobs:
-  build:
+  checkmarx:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: Checkmarx One CLI Action
-        uses: checkmarx/ast-github-action@main #Github Action version
+        uses: actions/checkout@v4
+
+      # 1) รัน Checkmarx One และให้สร้างไฟล์ SARIF
+      - name: Checkmarx One CLI
+        uses: checkmarx/ast-github-action@main
         with:
           project_name: fluk-test
           cx_tenant: nfr-fusionadvantec-sg
-          base_uri: https://sng.ast.checkmarx.net/ 
+          base_uri: https://sng.ast.checkmarx.net/
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          # จุดสำคัญ: สั่ง CLI ให้สร้างรายงาน SARIF ที่ชื่อ cx_result.sarif ไว้ในรูทของ workspace
+          additional_params: >-
+            --report-format sarif
+            --output-path .
+            --output-name cx_result
+
+      # 2) อัปโหลดไฟล์ SARIF ไปที่ GitHub Code Scanning
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cx_result.sarif
