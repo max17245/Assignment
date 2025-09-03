@@ -1,75 +1,21 @@
-name: Security Scans
-
+name: Checkmarx One Scan
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-permissions:
-  contents: read
-  actions: read
-  security-events: write
-
-defaults:
-  run:
-    shell: bash
-
+    branches:
+      - main
+      - master
+      - dev
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      # 1) Checkout
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # 2) Checkmarx One CLI Scan (SAST/SCA)
+      - name: Checkout
+        uses: actions/checkout@v2
       - name: Checkmarx One CLI Action
-        uses: checkmarx/ast-github-action@main
+        uses: checkmarx/ast-github-action@main #Github Action version
         with:
           project_name: fluk-test
           cx_tenant: nfr-fusionadvantec-sg
-          base_uri: https://sng.ast.checkmarx.net/
+          base_uri: https://sng.ast.checkmarx.net/ 
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-
-      # 3) ตรวจหา path และไฟล์ Terraform (กัน error บน PR/branch ที่ไม่มี IaC)
-      - name: Detect IaC path
-        id: iac
-        run: |
-          if [ -d "terraform" ]; then
-            echo "kics_path=terraform" >> "$GITHUB_OUTPUT"
-          else
-            echo "kics_path=." >> "$GITHUB_OUTPUT"
-          fi
-          if find . -type f -name "*.tf" | grep -q .; then
-            echo "has_tf=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_tf=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # 4) เตรียมโฟลเดอร์ผลลัพธ์
-      - name: Create results dir
-        if: ${{ steps.iac.outputs.has_tf == 'true' }}
-        run: mkdir -p kics-results
-
-      # 5) KICS IaC Scan (run เฉพาะเมื่อมี *.tf)
-      - name: Run KICS Scan
-        if: ${{ steps.iac.outputs.has_tf == 'true' }}
-        uses: checkmarx/kics-github-action@v2
-        with:
-          path: ${{ steps.iac.outputs.kics_path }}   # ใช้ 'terraform' ถ้ามี, ไม่งั้นสแกน root
-          platform_type: 'terraform'
-          output_path: 'kics-results'                # ต้องเป็นโฟลเดอร์
-          output_formats: 'sarif,json'
-          # ตั้งค่าตัวเลือกตามความต้องการ:
-          # ignore_on_exit: 'results'                 # ไม่ให้ job fail เมื่อพบ findings
-          # fail_on: 'high,critical'                  # fail เมื่อพบ severity สูง
-
-      # 6) อัปโหลด SARIF ไป Code Scanning (เฉพาะเมื่อมีไฟล์)
-      - name: Upload SARIF file
-        if: ${{ steps.iac.outputs.has_tf == 'true' && hashFiles('kics-results/results.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: kics-results/results.sarif
