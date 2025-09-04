@@ -53,7 +53,7 @@ jobs:
           # จุดสำคัญ: สั่ง CLI ให้สร้างรายงาน SARIF ที่ชื่อ cx_result.sarif ไว้ในรูทของ workspace
           additional_params: >-
             --report-format sarif
-            # --output-path .
+            --output-path .
             --output-name cx_result
 
       # 2) อัปโหลดไฟล์ SARIF ไปที่ GitHub Code Scanning
@@ -62,12 +62,12 @@ jobs:
         with:
           sarif_file: cx_result.sarif
 
-      # 3) อัปโหลดไฟล์ SARIF เป็น Artifact (ให้โหลดลงเครื่องได้)
-      - name: Upload Checkmarx SARIF (artifact)
-        if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: SARIF-Checkmarx
-          path: cx_result.sarif
-          retention-days: 30
+      # # 3) อัปโหลดไฟล์ SARIF เป็น Artifact (ให้โหลดลงเครื่องได้)
+      # - name: Upload Checkmarx SARIF (artifact)
+      #   if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: SARIF-Checkmarx
+      #     path: cx_result.sarif
+      #     retention-days: 30
 
