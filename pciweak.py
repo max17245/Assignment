@@ -1,4 +1,4 @@
-# INTENTIONALLY VULNERABLE DEMO APP — FOR SCANNER TESTING ONLY
+### INTENTIONALLY VULNERABLE DEMO APP — FOR SCANNER TESTING ONLY
 # DO NOT USE IN PRODUCTION
 from flask import Flask, request, render_template_string, redirect, send_from_directory
 import sqlite3, os, hashlib, random, pickle, requests
