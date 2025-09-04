@@ -53,7 +53,7 @@ jobs:
           # จุดสำคัญ: สั่ง CLI ให้สร้างรายงาน SARIF ที่ชื่อ cx_result.sarif ไว้ในรูทของ workspace
           additional_params: >-
             --report-format sarif
-            --output-path .
+            #--output-path .
             --output-name cx_result
 
       # 2) อัปโหลดไฟล์ SARIF ไปที่ GitHub Code Scanning
