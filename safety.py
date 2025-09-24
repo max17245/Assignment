@@ -28,3 +28,4 @@ paths:
 components:
   securitySchemes:
     bearerAuth:
+##
