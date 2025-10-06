@@ -436,7 +436,6 @@ jobs:
         with:
           sarif_file: cx_result.sarif
 
-      # 2) ดึง SBOM จาก "last scan" ด้วยคอนเทนเนอร์ CLI (ไม่สแกนใหม่)
       - name: Export SBOMs from last scan (CycloneDX & SPDX) via Docker
         env:
           CX_BASE_URI: https://sng.ast.checkmarx.net/
@@ -448,46 +447,44 @@ jobs:
         run: |
           set -euo pipefail
           docker pull checkmarx/ast-cli:latest
-
-          # ใช้โวลุ่มแยกเก็บคอนฟิก/โทเค็น เพื่อรันหลายคำสั่งต่อเนื่องได้
           mkdir -p .cx-config
 
-          docker run --rm \
+          DOCKER="docker run --rm \
             -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
             -e PROJECT -e BRANCH \
-            -v "$PWD":/work -w /work \
-            -v "$PWD/.cx-config":/root/.cx \
-            checkmarx/ast-cli:latest \
-            sh -lc '
-              set -e
-              cx configure set base-uri "$CX_BASE_URI"
-              cx configure set tenant "$CX_TENANT"
-              cx auth login --client-id "$CX_CLIENT_ID" --secret "$CX_CLIENT_SECRET"
+            -v \"$PWD\":/work -w /work \
+            -v \"$PWD/.cx-config\":/root/.cx \
+            checkmarx/ast-cli:latest"
 
-              # ถ้าโปรเจกต์/บรANCH ยังไม่มีสแกนมาก่อน ให้ข้ามอย่างสุภาพ
-              if ! cx results list --project-name "$PROJECT" --branch "$BRANCH" --format json | jq -e "length>0" >/dev/null; then
-                echo "No previous scan found for project=$PROJECT branch=$BRANCH. Skipping SBOM export."
-                exit 0
-              fi
+          # login + set context
+          $DOCKER cx configure set base-uri "$CX_BASE_URI"
+          $DOCKER cx configure set tenant "$CX_TENANT"
+          $DOCKER cx auth login --client-id "$CX_CLIENT_ID" --secret "$CX_CLIENT_SECRET"
 
-              # Export CycloneDX JSON
-              cx results show --project-name "$PROJECT" \
-                --report-format sbom \
-                --report-sbom-format CycloneDxJson \
-                --output-path . \
-                --output-name sbom-cyclonedx \
-                --last-scan \
-                --branch "$BRANCH"
+          # ถ้ายังไม่เคยมีสแกนมาก่อน: คำสั่ง show จะ non-zero; ให้ไม่ fail งาน
+          set +e
+          $DOCKER cx results show --project-name "$PROJECT" \
+            --report-format sbom \
+            --report-sbom-format CycloneDxJson \
+            --output-path . \
+            --output-name sbom-cyclonedx \
+            --last-scan \
+            --branch "$BRANCH"
+          cyclo_rc=$?
 
-              # Export SPDX JSON
-              cx results show --project-name "$PROJECT" \
-                --report-format sbom \
-                --report-sbom-format SpdxJson \
-                --output-path . \
-                --output-name sbom-spdx \
-                --last-scan \
-                --branch "$BRANCH"
-            '
+          $DOCKER cx results show --project-name "$PROJECT" \
+            --report-format sbom \
+            --report-sbom-format SpdxJson \
+            --output-path . \
+            --output-name sbom-spdx \
+            --last-scan \
+            --branch "$BRANCH"
+          spdx_rc=$?
+          set -e
+
+          if [ $cyclo_rc -ne 0 ] || [ $spdx_rc -ne 0 ]; then
+            echo "::warning::SBOM export skipped (no previous scan on project=$PROJECT branch=$BRANCH?)"
+          fi
 
       - name: List generated files
         run: |
