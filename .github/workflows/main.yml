@@ -436,6 +436,8 @@ jobs:
         with:
           sarif_file: cx_result.sarif
 
+# … (ขั้นตอน SARIF เดิมของคุณคงไว้) …
+
       - name: Export SBOMs from last scan (CycloneDX & SPDX) via Docker
         env:
           CX_BASE_URI: https://sng.ast.checkmarx.net/
@@ -447,58 +449,61 @@ jobs:
         run: |
           set -euo pipefail
           docker pull checkmarx/ast-cli:latest
-          mkdir -p .cx-config
+          
+          WORKDIR=$(pwd)
+          CONFIG_DIR="$WORKDIR/.cx-config"
+          mkdir -p "$CONFIG_DIR"
 
-          DOCKER="docker run --rm \
+          echo "Using workdir: $WORKDIR"
+
+          # login & configure (แต่ละคำสั่งแยก call)
+          docker run --rm \
             -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
+            -v "$WORKDIR":/work -w /work \
+            -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest \
+            cx configure set base-uri "$CX_BASE_URI"
+
+          docker run --rm \
+            -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
+            -v "$WORKDIR":/work -w /work \
+            -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest \
+            cx configure set tenant "$CX_TENANT"
+
+          docker run --rm \
+            -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
+            -v "$WORKDIR":/work -w /work \
+            -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest \
+            cx auth login --client-id "$CX_CLIENT_ID" --secret "$CX_CLIENT_SECRET"
+
+          # Export CycloneDX JSON
+          docker run --rm \
             -e PROJECT -e BRANCH \
-            -v \"$PWD\":/work -w /work \
-            -v \"$PWD/.cx-config\":/root/.cx \
-            checkmarx/ast-cli:latest"
+            -v "$WORKDIR":/work -w /work \
+            -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest \
+            cx results show --project-name "$PROJECT" \
+              --report-format sbom \
+              --report-sbom-format CycloneDxJson \
+              --output-path . \
+              --output-name sbom-cyclonedx \
+              --last-scan \
+              --branch "$BRANCH" || echo "::warning::No CycloneDX SBOM generated."
 
-          # login + set context
-          $DOCKER cx configure set base-uri "$CX_BASE_URI"
-          $DOCKER cx configure set tenant "$CX_TENANT"
-          $DOCKER cx auth login --client-id "$CX_CLIENT_ID" --secret "$CX_CLIENT_SECRET"
+          # Export SPDX JSON
+          docker run --rm \
+            -e PROJECT -e BRANCH \
+            -v "$WORKDIR":/work -w /work \
+            -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest \
+            cx results show --project-name "$PROJECT" \
+              --report-format sbom \
+              --report-sbom-format SpdxJson \
+              --output-path . \
+              --output-name sbom-spdx \
+              --last-scan \
+              --branch "$BRANCH" || echo "::warning::No SPDX SBOM generated."
 
-          # ถ้ายังไม่เคยมีสแกนมาก่อน: คำสั่ง show จะ non-zero; ให้ไม่ fail งาน
-          set +e
-          $DOCKER cx results show --project-name "$PROJECT" \
-            --report-format sbom \
-            --report-sbom-format CycloneDxJson \
-            --output-path . \
-            --output-name sbom-cyclonedx \
-            --last-scan \
-            --branch "$BRANCH"
-          cyclo_rc=$?
-
-          $DOCKER cx results show --project-name "$PROJECT" \
-            --report-format sbom \
-            --report-sbom-format SpdxJson \
-            --output-path . \
-            --output-name sbom-spdx \
-            --last-scan \
-            --branch "$BRANCH"
-          spdx_rc=$?
-          set -e
-
-          if [ $cyclo_rc -ne 0 ] || [ $spdx_rc -ne 0 ]; then
-            echo "::warning::SBOM export skipped (no previous scan on project=$PROJECT branch=$BRANCH?)"
-          fi
-
-      - name: List generated files
-        run: |
-          ls -la
-          echo "Found:"; ls -1 cx_result.sarif sbom-*_*sbom.json 2>/dev/null || true
-
-      - name: Upload SBOM & SARIF Artifacts
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: Checkmarx-Reports
-          path: |
-            cx_result.sarif
-            sbom-cyclonedx_sbom.json
-            sbom-spdx_sbom.json
-          retention-days: 30
 
