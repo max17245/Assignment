@@ -71,6 +71,89 @@
 #           path: cx_result.sarif
 #           retention-days: 30
 
+
+##############
+# name: Checkmarx → GitHub Code Scanning + SBOM (CycloneDX & SPDX)
+
+# on:
+#   push:
+#     branches: [ main ]
+#   pull_request:
+#     branches: [ main ]
+
+# permissions:
+#   contents: read
+#   actions: read
+#   security-events: write   # สำหรับอัปโหลด SARIF เข้าหน้า Code scanning
+
+# jobs:
+#   checkmarx:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       # 1) สแกนและสร้าง SARIF สำหรับ GitHub Code Scanning
+#       - name: Checkmarx One CLI (SARIF)
+#         uses: checkmarx/ast-github-action@main
+#         with:
+#           project_name: fluk-test
+#           cx_tenant: nfr-fusionadvantec-sg
+#           base_uri: https://sng.ast.checkmarx.net/
+#           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+#           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+#           additional_params: >-
+#             --report-format sarif
+#             --output-path .
+#             --output-name cx_result
+
+#       - name: Upload SARIF to Code Scanning
+#         uses: github/codeql-action/upload-sarif@v3
+#         with:
+#           sarif_file: cx_result.sarif
+
+#       - name: Upload Checkmarx SARIF (artifact)
+#         if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: SARIF-Checkmarx
+#           path: cx_result.sarif
+#           retention-days: 30
+
+#   # 2) สร้าง SBOM สองฟอร์แมตด้วย matrix: CycloneDxJson และ SpdxJson
+#   sbom:
+#     needs: checkmarx
+#     runs-on: ubuntu-latest
+#     strategy:
+#       matrix:
+#         fmt: [ CycloneDxJson, SpdxJson ]
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       - name: Checkmarx One CLI (SBOM - ${{ matrix.fmt }})
+#         uses: checkmarx/ast-github-action@main
+#         with:
+#           project_name: fluk-test
+#           cx_tenant: nfr-fusionadvantec-sg
+#           base_uri: https://sng.ast.checkmarx.net/
+#           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+#           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+#           additional_params: >-
+#             --report-format sbom
+#             --report-sbom-format ${{ matrix.fmt }}
+#             --output-path .
+#             --output-name sbom-${{ matrix.fmt }}
+
+#       - name: Upload SBOM (artifact) - ${{ matrix.fmt }}
+#         if: ${{ always() && hashFiles(format('sbom-{0}.json', matrix.fmt)) != '' }}
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: SBOM-${{ matrix.fmt }}
+#           path: sbom-${{ matrix.fmt }}.json
+#           retention-days: 30
+
+
 name: Checkmarx → GitHub Code Scanning + SBOM (CycloneDX & SPDX)
 
 on:
@@ -91,7 +174,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1) สแกนและสร้าง SARIF สำหรับ GitHub Code Scanning
+      # สแกน + สร้าง SARIF ให้ Code Scanning
       - name: Checkmarx One CLI (SARIF)
         uses: checkmarx/ast-github-action@main
         with:
@@ -110,26 +193,8 @@ jobs:
         with:
           sarif_file: cx_result.sarif
 
-      - name: Upload Checkmarx SARIF (artifact)
-        if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: SARIF-Checkmarx
-          path: cx_result.sarif
-          retention-days: 30
-
-  # 2) สร้าง SBOM สองฟอร์แมตด้วย matrix: CycloneDxJson และ SpdxJson
-  sbom:
-    needs: checkmarx
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        fmt: [ CycloneDxJson, SpdxJson ]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Checkmarx One CLI (SBOM - ${{ matrix.fmt }})
+      # สร้าง SBOM: CycloneDX JSON
+      - name: SBOM (CycloneDX JSON)
         uses: checkmarx/ast-github-action@main
         with:
           project_name: fluk-test
@@ -139,14 +204,37 @@ jobs:
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
           additional_params: >-
             --report-format sbom
-            --report-sbom-format ${{ matrix.fmt }}
+            --report-sbom-format CycloneDxJson
             --output-path .
-            --output-name sbom-${{ matrix.fmt }}
+            --output-name sbom-CycloneDxJson
 
-      - name: Upload SBOM (artifact) - ${{ matrix.fmt }}
-        if: ${{ always() && hashFiles(format('sbom-{0}.json', matrix.fmt)) != '' }}
+      - name: Upload SBOM (CycloneDX JSON)
+        if: ${{ always() && hashFiles('sbom-CycloneDxJson.json') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: SBOM-${{ matrix.fmt }}
-          path: sbom-${{ matrix.fmt }}.json
+          name: SBOM-CycloneDX
+          path: sbom-CycloneDxJson.json
+          retention-days: 30
+
+      # สร้าง SBOM: SPDX JSON
+      - name: SBOM (SPDX JSON)
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: fluk-test
+          cx_tenant: nfr-fusionadvantec-sg
+          base_uri: https://sng.ast.checkmarx.net/
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          additional_params: >-
+            --report-format sbom
+            --report-sbom-format SpdxJson
+            --output-path .
+            --output-name sbom-SpdxJson
+
+      - name: Upload SBOM (SPDX JSON)
+        if: ${{ always() && hashFiles('sbom-SpdxJson.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SBOM-SPDX
+          path: sbom-SpdxJson.json
           retention-days: 30
