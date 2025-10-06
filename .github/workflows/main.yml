@@ -416,7 +416,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1) สแกนครั้งเดียว + ทำ SARIF
+      # 1) สแกนครั้งเดียว + สร้าง SARIF สำหรับ GitHub Code Scanning
       - name: Checkmarx One CLI (SARIF)
         uses: checkmarx/ast-github-action@main
         with:
@@ -431,11 +431,12 @@ jobs:
             --output-path .
             --output-name cx_result
 
-      # - name: Post Upload SARIF to Code Scanning
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   with:
-      #     sarif_file: cx_result.sarif
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cx_result.sarif
 
+      # 2) ดึง SBOM จากสแกนล่าสุดผ่าน Docker (ไม่สแกนใหม่)
       - name: Export SBOMs from last scan (CycloneDX & SPDX) via Docker
         env:
           CX_BASE_URI: https://sng.ast.checkmarx.net/
@@ -452,35 +453,20 @@ jobs:
           CONFIG_DIR="$WORKDIR/.cx-config"
           mkdir -p "$CONFIG_DIR"
 
-          # ENTRYPOINT = cx  → เรียกคอมมานด์โดยไม่ต้องใส่ "cx" นำหน้า
-          docker run --rm \
-            -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
-            -v "$WORKDIR":/work -w /work \
-            -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest \
-            configure set base-uri "$CX_BASE_URI"
+          # ENTRYPOINT ของ image = `cx` → เรียก subcommand ตรง ๆ (ไม่ต้องพิมพ์คำว่า cx)
+          docker run --rm -v "$WORKDIR":/work -w /work -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest configure set --prop-name cx_base_uri --prop-value "$CX_BASE_URI"
 
-          docker run --rm \
-            -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
-            -v "$WORKDIR":/work -w /work \
-            -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest \
-            configure set tenant "$CX_TENANT"
+          docker run --rm -v "$WORKDIR":/work -w /work -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest configure set --prop-name cx_tenant --prop-value "$CX_TENANT"
 
-          docker run --rm \
-            -e CX_BASE_URI -e CX_TENANT -e CX_CLIENT_ID -e CX_CLIENT_SECRET \
-            -v "$WORKDIR":/work -w /work \
-            -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest \
-            auth login --client-id "$CX_CLIENT_ID" --secret "$CX_CLIENT_SECRET"
+          docker run --rm -v "$WORKDIR":/work -w /work -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest auth login --client-id "$CX_CLIENT_ID" --client-secret "$CX_CLIENT_SECRET"
 
-          # Export CycloneDX JSON (จากสแกนล่าสุด)
-          docker run --rm \
-            -e PROJECT -e BRANCH \
-            -v "$WORKDIR":/work -w /work \
-            -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest \
-            results show --project-name "$PROJECT" \
+          # Export CycloneDX JSON จาก last scan
+          docker run --rm -e PROJECT -e BRANCH \
+            -v "$WORKDIR":/work -w /work -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest results show --project-name "$PROJECT" \
               --report-format sbom \
               --report-sbom-format CycloneDxJson \
               --output-path . \
@@ -488,13 +474,10 @@ jobs:
               --last-scan \
               --branch "$BRANCH" || echo "::warning::No CycloneDX SBOM generated."
 
-          # Export SPDX JSON (จากสแกนล่าสุด)
-          docker run --rm \
-            -e PROJECT -e BRANCH \
-            -v "$WORKDIR":/work -w /work \
-            -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest \
-            results show --project-name "$PROJECT" \
+          # Export SPDX JSON จาก last scan
+          docker run --rm -e PROJECT -e BRANCH \
+            -v "$WORKDIR":/work -w /work -v "$CONFIG_DIR":/root/.cx \
+            checkmarx/ast-cli:latest results show --project-name "$PROJECT" \
               --report-format sbom \
               --report-sbom-format SpdxJson \
               --output-path . \
@@ -502,4 +485,24 @@ jobs:
               --last-scan \
               --branch "$BRANCH" || echo "::warning::No SPDX SBOM generated."
 
+      # 3) แสดงไฟล์ที่ได้ (ช่วยดีบั๊กชื่อ/พาธ)
+      - name: List generated files
+        run: |
+          echo "PWD: $(pwd)"
+          ls -la
+          echo "---- find reports ----"
+          find . -maxdepth 2 -type f \
+            \( -name "cx_result.sarif" -o -name "sbom-*_sbom.json" \) -print
+
+      # 4) อัปโหลดทั้งหมดเป็น Artifact (ชื่อจริงที่ CLI สร้าง: *_sbom.json)
+      - name: Upload SBOM & SARIF Artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Checkmarx-Reports
+          path: |
+            cx_result.sarif
+            sbom-cyclonedx_sbom.json
+            sbom-spdx_sbom.json
+          retention-days: 30
 
