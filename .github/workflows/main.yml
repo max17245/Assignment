@@ -235,6 +235,16 @@ jobs:
           find . -maxdepth 2 -type f -name "sbom-*" -o -name "cx_result.*" -print
 
       # 5) อัปโหลด Artifact (ไม่ต้องใช้ hashFiles, ใช้ always + wildcard)
+      # - name: Upload SBOM & SARIF Artifacts
+      #   if: ${{ always() }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: Checkmarx-Reports
+      #     path: |
+      #       cx_result.sarif
+      #       sbom-cyclonedx.json
+      #       sbom-spdx.json
+      #     retention-days: 30
       - name: Upload SBOM & SARIF Artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -242,7 +252,7 @@ jobs:
           name: Checkmarx-Reports
           path: |
             cx_result.sarif
-            sbom-cyclonedx.json
-            sbom-spdx.json
+            sbom-*_sbom.json
           retention-days: 30
+
 
