@@ -344,5 +344,5 @@ jobs:
           name: downloaded-file-artifact
           # The path to the file(s) to upload.
           # In this case, it's the file we just downloaded.
-          path: sca-report.zip
+          path: sbom.json
 
