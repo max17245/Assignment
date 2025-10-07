@@ -430,8 +430,8 @@ jobs:
       - name: Get Export Status and File URL
         id: get-file-url
         run: |
-          echo "Waiting 10 seconds for the export to be ready..."
-          sleep 10
+          echo "Waiting 15 seconds for the export to be ready..."
+          sleep 15
           echo "Checking export status for ID: ${{ steps.sca-export-request.outputs.exportId }}"
           
           STATUS_RESPONSE=$(curl --silent --location 'https://sng.ast.checkmarx.net/api/sca/export/requests?exportId=${{ steps.sca-export-request.outputs.exportId }}' \
@@ -451,20 +451,29 @@ jobs:
 
       # Step 6: Display the retrieved File URL
       - name: Display File URL
+        if: steps.get-file-url.outputs.fileUrl != ''
         run: |
-          echo "The retrieved file URL is:"
-          # The full URL will be masked in the log for security
-          echo "${{ steps.get-file-url.outputs.fileUrl }}"
-
-          # Verify the URL's length to confirm it's not empty
+          echo "The retrieved file URL is valid."
           URL_VALUE="${{ steps.get-file-url.outputs.fileUrl }}"
           URL_LENGTH=${#URL_VALUE}
           echo "URL Length is: $URL_LENGTH"
 
-          if [ "$URL_LENGTH" -gt 20 ]; then
-            echo "✅ URL was retrieved successfully."
-          else
-            echo "❌ Failed to retrieve a valid URL. The export might need more time to complete."
-            # exit 1 # You can uncomment this to make the job fail if the URL is not found
-          fi
+      # Step 7: Download the report file
+      - name: Download CycloneDX Report
+        if: steps.get-file-url.outputs.fileUrl != ''
+        run: |
+          echo "Downloading report from URL..."
+          curl --silent --location "${{ steps.get-file-url.outputs.fileUrl }}" \
+          --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}' \
+          -o cyclonedx-report.json
+          echo "✅ Download complete. Saved as cyclonedx-report.json"
+
+      # Step 8: Upload report as a pipeline artifact
+      - name: Upload Report as Artifact
+        if: ${{ always() && hashFiles('cyclonedx-report.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CycloneDX-Report
+          path: cyclonedx-report.json
+          retention-days: 5
 
