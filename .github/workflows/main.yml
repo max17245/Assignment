@@ -382,4 +382,9 @@ jobs:
             echo "Response from server: $TOKEN_RESPONSE"
             exit 1
           fi
-
+      # Step 3: Demonstrate using the stored access token
+      - name: Use the Access Token
+        run: |
+          echo "Successfully retrieved the token from the previous step."
+          # Use the output from the 'cx-login' step. The token will be masked in the logs.
+          echo "Using token: ${{ steps.cx-login.outputs.token }}"
