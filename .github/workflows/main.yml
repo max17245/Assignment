@@ -256,7 +256,7 @@
 #           retention-days: 30
 
 
-name: Checkmarx → Code Scanning + SBOM (use same scan id)
+name: Checkmarx → Code Scanning + SBOM via API
 
 on:
   push:
@@ -272,13 +272,13 @@ permissions:
 jobs:
   checkmarx:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1) สแกนและสร้าง SARIF
+      # 1) สแกนด้วย Checkmarx One (สร้าง SARIF)
       - name: Checkmarx One CLI (SARIF)
-        id: checkmarx_scan
         uses: checkmarx/ast-github-action@main
         with:
           project_name: fluk-test
@@ -291,93 +291,149 @@ jobs:
             --report-format sarif
             --output-path $GITHUB_WORKSPACE
             --output-name cx_result
-      - name: Upload SARIF to GitHub Code Scanning
+
+      # 2) Upload SARIF เพื่อโชว์ใน GitHub Code Scanning
+      - name: Upload SARIF to Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: cx_result.sarif
 
-      # 2) ดึง Scan ID ล่าสุดจาก Checkmarx (project+branch)
-      - name: Get Scan ID from last run
+      # 3) ใช้ curl เรียก API หา Scan ID ล่าสุดจาก Project/Branch
+      - name: Get latest Scan ID from Checkmarx API
         id: get_scan_id
         env:
-          CX_BASE_URI: https://sng.ast.checkmarx.net/
+          CX_BASE_URI: https://sng.ast.checkmarx.net
           CX_TENANT: nfr-fusionadvantec-sg
           CX_CLIENT_ID: ${{ secrets.CX_CLIENT_ID }}
           CX_CLIENT_SECRET: ${{ secrets.CX_CLIENT_SECRET }}
           PROJECT: fluk-test
           BRANCH: ${{ github.ref_name }}
         run: |
-          docker pull checkmarx/ast-cli:latest
-          CONFIG_DIR=$(pwd)/.cx-config
-          mkdir -p "$CONFIG_DIR"
+          set -euo pipefail
+          echo "🔐 Getting access token..."
+          TOKEN=$(curl -s -X POST "$CX_BASE_URI/identity/connect/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            -d "client_id=$CX_CLIENT_ID" \
+            -d "client_secret=$CX_CLIENT_SECRET" \
+            -d "scope=api_access" | jq -r '.access_token')
 
-          # Login
-          docker run --rm -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest auth login \
-              --client-id "$CX_CLIENT_ID" \
-              --client-secret "$CX_CLIENT_SECRET" \
-              --tenant "$CX_TENANT" \
-              --base-uri "$CX_BASE_URI"
-
-          # Query scans
-          SCAN_ID=$(docker run --rm -v "$CONFIG_DIR":/root/.cx \
-            checkmarx/ast-cli:latest results list \
-              --project-name "$PROJECT" \
-              --branch "$BRANCH" \
-              --format json | jq -r '.[0].scanId // empty')
-
-          if [ -z "$SCAN_ID" ]; then
-            echo "::error::No previous scan found"
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::Failed to get OAuth token"
             exit 1
           fi
-          echo "SCAN_ID=$SCAN_ID"
+
+          echo "✅ Got access token"
+          echo "🔍 Fetching latest scan for project '$PROJECT' (branch: $BRANCH)..."
+
+          SCAN_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+            "$CX_BASE_URI/api/scans?projectName=$PROJECT&branch=$BRANCH&limit=1" | jq -r '.[0].id // empty')
+
+          if [ -z "$SCAN_ID" ]; then
+            echo "::error::No scan found for $PROJECT ($BRANCH)"
+            exit 1
+          fi
+
+          echo "✅ Found Scan ID: $SCAN_ID"
           echo "scan_id=$SCAN_ID" >> $GITHUB_OUTPUT
 
-      # 3) ใช้ Scan ID เพื่อสร้าง SBOM (CycloneDX)
-      - name: Generate SBOM (CycloneDX)
+      # 4) ใช้ API สร้าง SBOM CycloneDX
+      - name: Generate CycloneDX SBOM via API
         env:
-          CX_BASE_URI: https://sng.ast.checkmarx.net/
-          CX_TENANT: nfr-fusionadvantec-sg
+          CX_BASE_URI: https://sng.ast.checkmarx.net
           CX_CLIENT_ID: ${{ secrets.CX_CLIENT_ID }}
           CX_CLIENT_SECRET: ${{ secrets.CX_CLIENT_SECRET }}
           SCAN_ID: ${{ steps.get_scan_id.outputs.scan_id }}
         run: |
-          CONFIG_DIR=$(pwd)/.cx-config
-          docker run --rm -v "$CONFIG_DIR":/root/.cx -v "$(pwd)":/work -w /work \
-            checkmarx/ast-cli:latest results show \
-              --scan-id "$SCAN_ID" \
-              --report-format sbom \
-              --report-sbom-format CycloneDxJson \
-              --output-path . \
-              --output-name sbom-cyclonedx
+          set -euo pipefail
 
-      # 4) ใช้ Scan ID เพื่อสร้าง SBOM (SPDX)
-      - name: Generate SBOM (SPDX)
+          echo "🔐 Getting access token..."
+          TOKEN=$(curl -s -X POST "$CX_BASE_URI/identity/connect/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            -d "client_id=$CX_CLIENT_ID" \
+            -d "client_secret=$CX_CLIENT_SECRET" \
+            -d "scope=api_access" | jq -r '.access_token')
+
+          echo "📦 Requesting CycloneDX SBOM..."
+          REPORT_ID=$(curl -s -X POST "$CX_BASE_URI/api/reports" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"scanId\": \"$SCAN_ID\",
+              \"type\": \"SBOM\",
+              \"format\": \"CycloneDxJson\"
+            }" | jq -r '.reportId')
+
+          echo "CycloneDX Report ID: $REPORT_ID"
+          echo "⏳ Waiting for report..."
+          for i in {1..20}; do
+            STATUS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+              "$CX_BASE_URI/api/reports/$REPORT_ID" | jq -r '.status')
+            echo "Status: $STATUS"
+            if [ "$STATUS" = "Completed" ]; then break; fi
+            sleep 10
+          done
+
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            -o sbom-cyclonedx.json \
+            "$CX_BASE_URI/api/reports/$REPORT_ID/download"
+
+          echo "✅ CycloneDX SBOM downloaded (sbom-cyclonedx.json)"
+
+      # 5) ใช้ API สร้าง SBOM SPDX
+      - name: Generate SPDX SBOM via API
         env:
-          CX_BASE_URI: https://sng.ast.checkmarx.net/
-          CX_TENANT: nfr-fusionadvantec-sg
+          CX_BASE_URI: https://sng.ast.checkmarx.net
           CX_CLIENT_ID: ${{ secrets.CX_CLIENT_ID }}
           CX_CLIENT_SECRET: ${{ secrets.CX_CLIENT_SECRET }}
           SCAN_ID: ${{ steps.get_scan_id.outputs.scan_id }}
         run: |
-          CONFIG_DIR=$(pwd)/.cx-config
-          docker run --rm -v "$CONFIG_DIR":/root/.cx -v "$(pwd)":/work -w /work \
-            checkmarx/ast-cli:latest results show \
-              --scan-id "$SCAN_ID" \
-              --report-format sbom \
-              --report-sbom-format SpdxJson \
-              --output-path . \
-              --output-name sbom-spdx
+          set -euo pipefail
 
-      # 5) แสดงไฟล์ทั้งหมด
+          echo "🔐 Getting access token..."
+          TOKEN=$(curl -s -X POST "$CX_BASE_URI/identity/connect/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            -d "client_id=$CX_CLIENT_ID" \
+            -d "client_secret=$CX_CLIENT_SECRET" \
+            -d "scope=api_access" | jq -r '.access_token')
+
+          echo "📦 Requesting SPDX SBOM..."
+          REPORT_ID=$(curl -s -X POST "$CX_BASE_URI/api/reports" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"scanId\": \"$SCAN_ID\",
+              \"type\": \"SBOM\",
+              \"format\": \"SpdxJson\"
+            }" | jq -r '.reportId')
+
+          echo "SPDX Report ID: $REPORT_ID"
+          echo "⏳ Waiting for report..."
+          for i in {1..20}; do
+            STATUS=$(curl -s -H "Authorization: Bearer $TOKEN" \
+              "$CX_BASE_URI/api/reports/$REPORT_ID" | jq -r '.status')
+            echo "Status: $STATUS"
+            if [ "$STATUS" = "Completed" ]; then break; fi
+            sleep 10
+          done
+
+          curl -s -H "Authorization: Bearer $TOKEN" \
+            -o sbom-spdx.json \
+            "$CX_BASE_URI/api/reports/$REPORT_ID/download"
+
+          echo "✅ SPDX SBOM downloaded (sbom-spdx.json)"
+
+      # 6) แสดงไฟล์ผลลัพธ์
       - name: List generated files
         run: |
           echo "PWD: $(pwd)"
           ls -la
-          echo "---- find sbom files ----"
-          find . -maxdepth 2 -type f -name "sbom-*" -o -name "cx_result.*" -print
+          echo "---- find SBOM & SARIF files ----"
+          find . -maxdepth 2 -type f -name "*.json" -o -name "*.sarif" -print
 
-      # 6) อัปโหลดเป็น Artifact
+      # 7) Upload ทั้งหมดเป็น Artifact
       - name: Upload Reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -385,6 +441,7 @@ jobs:
           name: Checkmarx-Reports
           path: |
             cx_result.sarif
-            sbom-cyclonedx_sbom.json
-            sbom-spdx_sbom.json
+            sbom-cyclonedx.json
+            sbom-spdx.json
           retention-days: 30
+
