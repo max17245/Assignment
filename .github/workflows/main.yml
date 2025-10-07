@@ -441,9 +441,6 @@ jobs:
           fi
           echo "✅ Found Project ID: $PROJECT_ID"
 
-          echo "Waiting 30 seconds for the scan to be indexed by the API..."
-          sleep 30
-
           echo "Fetching latest scan for Project ID using /last-scan endpoint: $PROJECT_ID"
           LAST_SCAN_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/projects/last-scan?project-ids=${PROJECT_ID}&limit=1" \
             --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
