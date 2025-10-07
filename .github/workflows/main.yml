@@ -346,6 +346,7 @@
 #           # In this case, it's the file we just downloaded.
 #           path: sbom.json
 
+
 # This workflow is for testing the Checkmarx login process.
 # It can be triggered manually from the Actions tab in GitHub.
 name: Test Checkmarx Login
@@ -361,8 +362,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Step 2: Attempt to log in to Checkmarx and verify the response
-      - name: Login to Checkmarx and Verify
+      # Step 2: Attempt to log in to Checkmarx and store the token
+      # We give this step an ID to reference its output in later steps.
+      - name: Login to Checkmarx and Store Token
+        id: cx-login # ID for this step
         run: |
           echo "Attempting to get access token from Checkmarx..."
           
@@ -373,18 +376,35 @@ jobs:
           --data-urlencode 'client_id=ast-app' \
           --data-urlencode 'refresh_token=${{ secrets.CX_REFRESH_TOKEN }}')
           
-          # Check if the response contains the 'access_token' field using jq
-          # The '-e' flag exits with an error if the key doesn't exist
+          # Check if the response contains the 'access_token'
           if echo "$TOKEN_RESPONSE" | jq -e '.access_token' > /dev/null; then
-            echo "✅ Login successful! Token received."
+            echo "✅ Login successful! Storing token."
+            # Extract the access token using jq
+            ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r .access_token)
+            # Make the token available to subsequent steps
+            echo "token=${ACCESS_TOKEN}" >> $GITHUB_OUTPUT
           else
             echo "❌ Login failed!"
             echo "Response from server: $TOKEN_RESPONSE"
             exit 1
           fi
-      # Step 3: Demonstrate using the stored access token
-      - name: Use the Access Token
+
+      # Step 3: Verify the stored access token
+      - name: Verify Access Token
         run: |
-          echo "Successfully retrieved the token from the previous step."
-          # Use the output from the 'cx-login' step. The token will be masked in the logs.
+          echo "Verifying the token from the previous step..."
+          # GitHub masks the raw token value in logs, so it will appear as '***'.
           echo "Using token: ${{ steps.cx-login.outputs.token }}"
+          
+          # To confirm the token is not empty, we check its length.
+          TOKEN_VALUE="${{ steps.cx-login.outputs.token }}"
+          TOKEN_LENGTH=${#TOKEN_VALUE}
+          
+          echo "Token length is: $TOKEN_LENGTH"
+          
+          if [ "$TOKEN_LENGTH" -gt 50 ]; then
+            echo "✅ Verification successful: Token has a valid length."
+          else
+            echo "❌ Verification failed: Token appears to be empty or too short."
+            exit 1
+          fi
