@@ -256,102 +256,45 @@
 #           retention-days: 30
 
 
-name: Download Checkmarx Export & Upload Artifact
 
+# This is a basic GitHub Actions workflow to download a file and upload it as an artifact.
+# It is triggered on every push event to any branch in the repository.
 
+name: Download and Upload Artifact
 
+# Controls when the workflow will run.
+# The 'push' event triggers the workflow every time someone pushes a commit.
 on:
-  workflow_dispatch:
-    inputs:
-      token:
-        description: "Bearer token (SCA API token; scope=sca_api)"
-        required: true
-      # ใช้ exportId ที่มีอยู่แล้ว หรือใส่ scanId เพื่อสร้างใหม่
-      export_id:
-        description: "Existing exportId (optional)"
-        required: false
-      scan_id:
-        description: "scanId to generate a new export (optional if export_id provided)"
-        required: false
-      file_format:
-        description: "File format (ScanReportPdf/ScanReportJson/ScanReportCsv/ScanReportXml/CycloneDxJson/CycloneDxXml/SpdxJson)"
-        required: false
-        default: "ScanReportPdf"
+  push:
+    branches: [ '**' ] # Triggers on push to all branches
 
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel.
 jobs:
-  export-and-download:
+  # This workflow contains a single job called "build".
+  build:
+    # The type of runner that the job will run on.
     runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job.
     steps:
-      - name: Export & download
-        id: dl
-        shell: bash
-        env:
-          BASE: "https://sng.ast.checkmarx.net/api/sca/export"
-          TOKEN: ${{ github.event.inputs.token }}
-          EXPORT_ID: ${{ github.event.inputs.export_id }}
-          SCAN_ID: ${{ github.event.inputs.scan_id }}
-          FILE_FORMAT: ${{ github.event.inputs.file_format }}
-        run: |
-          set -euo pipefail
-          AUTH="Authorization: Bearer ${TOKEN}"
+      # Step 1: We don't need to check out the code for this simple example,
+      # but it's good practice to include it if you were to interact with your repository's files.
+      # - uses: actions/checkout@v4
 
-          # ถ้าไม่มี EXPORT_ID แต่มี SCAN_ID → สร้าง export ใหม่ (POST /requests)
-          if [[ -z "${EXPORT_ID:-}" && -n "${SCAN_ID:-}" ]]; then
-            echo "→ Creating new export for scanId=${SCAN_ID} in format=${FILE_FORMAT}"
-            REQ_PAYLOAD=$(jq -nc --arg scan "$SCAN_ID" --arg fmt "$FILE_FORMAT" \
-              '{ScanId:$scan, FileFormat:$fmt}')
-            CREATE_JSON="$(curl -fsSL -X POST "$BASE/requests" \
-              -H "$AUTH" -H "Content-Type: application/json" \
-              --data "$REQ_PAYLOAD")" || { echo "Create export failed"; exit 1; }
+      # Step 2: Download an example file using curl.
+      # We'll download the README from a public repository as an example.
+      - name: Download example file
+        run: curl -o example-file.txt https://raw.githubusercontent.com/actions/checkout/main/README.md
 
-            echo "Create response: $CREATE_JSON"
-            EXPORT_ID="$(printf '%s' "$CREATE_JSON" | jq -r '.exportId // empty')"
-            if [[ -z "$EXPORT_ID" || "$EXPORT_ID" == "null" ]]; then
-              echo "No exportId returned from create step"; exit 1
-            fi
-          fi
-
-          if [[ -z "${EXPORT_ID:-}" ]]; then
-            echo "Need either export_id or scan_id"; exit 1
-          fi
-
-          echo "→ Polling status for exportId=$EXPORT_ID"
-          ATTEMPTS=120   # รวม ~10 นาทีถ้า interval=5s
-          SLEEP=5
-          FILE_URL=""
-          STATUS=""
-
-          for i in $(seq 1 $ATTEMPTS); do
-            JSON="$(curl -fsSL -G -H "$AUTH" --data-urlencode "exportId=${EXPORT_ID}" "$BASE/requests")" || {
-              echo "GET /requests 401/403? ตรวจสอบว่าเป็น SCA token (scope=sca_api)"; exit 22; }
-            STATUS="$(printf '%s' "$JSON" | jq -r '.status // empty')"
-            FILE_URL="$(printf '%s' "$JSON" | jq -r '.fileUrl // empty')"
-            echo "status=$STATUS"
-            if [[ "$STATUS" == "Completed" && -n "$FILE_URL" && "$FILE_URL" != "null" ]]; then
-              break
-            fi
-            sleep "$SLEEP"
-          done
-
-          if [[ "$STATUS" != "Completed" || -z "$FILE_URL" || "$FILE_URL" == "null" ]]; then
-            echo "Report not ready (status=$STATUS)."; exit 2
-          fi
-
-          echo "→ Downloading from fileUrl: $FILE_URL"
-          curl -fSL -OJ \
-            -H "$AUTH" \
-            -H "Accept: application/octet-stream" \
-            --retry 5 --retry-delay 3 \
-            "$FILE_URL"
-
-          FILE="$(ls -1t | head -n1)"
-          [[ -s "$FILE" ]] || { echo "Downloaded file is empty"; exit 3; }
-          echo "file=$FILE" >> "$GITHUB_OUTPUT"
-
-      - name: Upload artifact
+      # Step 3: Use the official 'upload-artifact' action to store the downloaded file.
+      # Artifacts are files or collections of files produced during a workflow run.
+      - name: Upload example file as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: checkmarx-sca-export
-          path: ${{ steps.dl.outputs.file }}
-          retention-days: 14
+          # The name of the artifact to be uploaded.
+          name: downloaded-file-artifact
+          # The path to the file(s) to upload.
+          # In this case, it's the file we just downloaded.
+          path: example-file.txt
+
 
