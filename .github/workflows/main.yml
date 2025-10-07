@@ -261,23 +261,6 @@ name: Download Checkmarx Export & Upload Artifact
 
 
 on:
-  push:
-    branches: [ main ]
-        inputs:
-      token:
-        description: "Bearer token (SCA API token; scope=sca_api)"
-        required: true
-      # ใช้ exportId ที่มีอยู่แล้ว หรือใส่ scanId เพื่อสร้างใหม่
-      export_id:
-        description: "Existing exportId (optional)"
-        required: false
-      scan_id:
-        description: "scanId to generate a new export (optional if export_id provided)"
-        required: false
-      file_format:
-        description: "File format (ScanReportPdf/ScanReportJson/ScanReportCsv/ScanReportXml/CycloneDxJson/CycloneDxXml/SpdxJson)"
-        required: false
-        default: "ScanReportPdf"
   workflow_dispatch:
     inputs:
       token:
