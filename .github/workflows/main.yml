@@ -441,14 +441,14 @@ jobs:
           fi
           echo "✅ Found Project ID: $PROJECT_ID"
 
-          echo "Fetching latest scan for Project ID: $PROJECT_ID"
-          SCANS_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/scans?project-id=${PROJECT_ID}&scan-status=Completed&sort=-created&limit=1" \
+          echo "Fetching latest scan for Project ID using /last-scan endpoint: $PROJECT_ID"
+          LAST_SCAN_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/projects/last-scan?project-ids=${PROJECT_ID}&limit=1" \
             --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
 
-          SCAN_ID=$(echo "$SCANS_RESPONSE" | jq -r '.scans[0].id')
+          SCAN_ID=$(echo "$LAST_SCAN_RESPONSE" | jq -r '.[0].id')
 
           if [ -z "$SCAN_ID" ] || [ "$SCAN_ID" == "null" ]; then
-            echo "::error::Could not find latest completed Scan ID. Response: $SCANS_RESPONSE"
+            echo "::error::Could not find latest Scan ID using /last-scan endpoint. Response: $LAST_SCAN_RESPONSE"
             exit 1
           fi
           
@@ -517,5 +517,4 @@ jobs:
           name: CycloneDX-Report
           path: cyclonedx-report.json
           retention-days: 30
-
 
