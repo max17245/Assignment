@@ -257,6 +257,46 @@
 
 
 
+# # This is a basic GitHub Actions workflow to download a file and upload it as an artifact.
+# # It is triggered on every push event to any branch in the repository.
+
+# name: Download and Upload Artifact
+
+# # Controls when the workflow will run.
+# # The 'push' event triggers the workflow every time someone pushes a commit.
+# on:
+#   push:
+#     branches: [ '**' ] # Triggers on push to all branches
+
+# # A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+# jobs:
+#   # This workflow contains a single job called "build".
+#   build:
+#     # The type of runner that the job will run on.
+#     runs-on: ubuntu-latest
+
+#     # Steps represent a sequence of tasks that will be executed as part of the job.
+#     steps:
+#       # Step 1: We don't need to check out the code for this simple example,
+#       # but it's good practice to include it if you were to interact with your repository's files.
+#       # - uses: actions/checkout@v4
+
+#       # Step 2: Download an example file using curl.
+#       # We'll download the README from a public repository as an example.
+#       - name: Download example file
+#         run: curl -o example-file.txt https://raw.githubusercontent.com/actions/checkout/main/README.md
+
+#       # Step 3: Use the official 'upload-artifact' action to store the downloaded file.
+#       # Artifacts are files or collections of files produced during a workflow run.
+#       - name: Upload example file as artifact
+#         uses: actions/upload-artifact@v4
+#         with:
+#           # The name of the artifact to be uploaded.
+#           name: downloaded-file-artifact
+#           # The path to the file(s) to upload.
+#           # In this case, it's the file we just downloaded.
+#           path: example-file.txt
+
 # This is a basic GitHub Actions workflow to download a file and upload it as an artifact.
 # It is triggered on every push event to any branch in the repository.
 
@@ -281,20 +321,23 @@ jobs:
       # but it's good practice to include it if you were to interact with your repository's files.
       # - uses: actions/checkout@v4
 
-      # Step 2: Download an example file using curl.
-      # We'll download the README from a public repository as an example.
-      - name: Download example file
-        run: curl -o example-file.txt https://raw.githubusercontent.com/actions/checkout/main/README.md
+      # Step 2: Download a file using a Bearer Token for authentication.
+      # The token is stored as a GitHub secret to avoid exposing it in the workflow file.
+      - name: Download file with Bearer token
+        run: >
+          curl -L -o sca-report.zip 
+          -H "Authorization: Bearer ${{ secrets.BEARER_TOKEN }}" 
+          "https://sng.ast.checkmarx.net/api/sca/export/requests/c8645112-00c3-7350-97c1-31f7db0b2cfc/download"
 
       # Step 3: Use the official 'upload-artifact' action to store the downloaded file.
       # Artifacts are files or collections of files produced during a workflow run.
-      - name: Upload example file as artifact
+      - name: Upload file as artifact
         uses: actions/upload-artifact@v4
         with:
           # The name of the artifact to be uploaded.
           name: downloaded-file-artifact
           # The path to the file(s) to upload.
           # In this case, it's the file we just downloaded.
-          path: example-file.txt
+          path: sca-report.zip
 
 
