@@ -259,7 +259,10 @@
 name: Download Checkmarx Export & Upload Artifact
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   run:
