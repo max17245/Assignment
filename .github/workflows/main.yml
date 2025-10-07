@@ -371,46 +371,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Step 2: Run Checkmarx Scan and Extract ID using 'tee'
-      # We now run the Docker command directly to pipe its output to a log file for reliable Scan ID extraction.
-      - name: Run Checkmarx Scan and Extract ID
-        id: checkmarx-scan
-        run: |
-          echo "Starting Checkmarx scan and capturing output..."
-          # We run the CLI via Docker, redirect stderr to stdout, and use 'tee' to save all output to 'scan_output.log'
-          docker run --rm \
-            -v $(pwd):/app/src \
-            -w /app/src \
-            -e CX_CLIENT_ID='${{ secrets.CX_CLIENT_ID }}' \
-            -e CX_CLIENT_SECRET='${{ secrets.CX_CLIENT_SECRET }}' \
-            -e CX_BASE_URI='https://sng.ast.checkmarx.net/' \
-            -e CX_TENANT='nfr-fusionadvantec-sg' \
-            checkmarx/ast-cli:latest \
-            scan create --project-name fluk-test --branch ${{ github.ref_name }} -s . \
-            --report-format sarif \
-            --output-path . \
-            --output-name cx_result 2>&1 | tee scan_output.log
-
-          # Verify that the scan created the SARIF file
-          if [ ! -f "cx_result.sarif" ]; then
-            echo "::error::Checkmarx scan did not produce the expected SARIF file (cx_result.sarif)."
-            echo "--- Full scan log for debugging ---"
-            cat scan_output.log
-            echo "-----------------------------------"
-            exit 1
-          fi
-
-          # Extract the Scan ID from the log file we just created
-          SCAN_ID=$(grep 'Scan ID:' scan_output.log | awk '{print $3}')
-
-          if [ -z "$SCAN_ID" ]; then
-            echo "::error::Failed to extract Scan ID from the log file."
-            cat scan_output.log
-            exit 1
-          fi
-          
-          echo "✅ Successfully extracted Scan ID: $SCAN_ID"
-          echo "scan-id=${SCAN_ID}" >> $GITHUB_OUTPUT
+      # Step 2: Run Checkmarx One Scan. We no longer need its output directly.
+      - name: Checkmarx One Scan
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: fluk-test
+          cx_tenant: nfr-fusionadvantec-sg
+          base_uri: https://sng.ast.checkmarx.net/
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          additional_params: >-
+            --report-format sarif
+            --output-path .
+            --output-name cx_result
 
       # Step 3: Upload the SARIF file to GitHub Code Scanning
       - name: Upload SARIF to Code Scanning
@@ -430,10 +403,10 @@ jobs:
       # --- SBOM Export Steps ---
 
       # Step 5: Log in to Checkmarx using a refresh token
-      - name: Login to Checkmarx for SBOM Export
+      - name: Login to Checkmarx for API Calls
         id: cx-login
         run: |
-          echo "Attempting to get access token for SBOM export..."
+          echo "Attempting to get access token for API calls..."
           TOKEN_RESPONSE=$(curl --silent --location 'https://sng.iam.checkmarx.net/auth/realms/nfr-fusionadvantec-sg/protocol/openid-connect/token' \
           --header 'Content-Type: application/x-www-form-urlencoded' \
           --data-urlencode 'grant_type=refresh_token' \
@@ -450,16 +423,48 @@ jobs:
             exit 1
           fi
 
-      # Step 6: Request the SCA Export using the extracted Scan ID
+      # Step 6: Get the latest Scan ID for the project via API
+      - name: Get Latest Scan ID via API
+        id: get-scan-id
+        run: |
+          PROJECT_NAME="fluk-test"
+          echo "Fetching Project ID for project: $PROJECT_NAME"
+          
+          PROJECT_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/projects?name=${PROJECT_NAME}" \
+            --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
+          
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.projects[0].id')
+          
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" == "null" ]; then
+            echo "::error::Could not find Project ID for project '$PROJECT_NAME'. Response: $PROJECT_RESPONSE"
+            exit 1
+          fi
+          echo "✅ Found Project ID: $PROJECT_ID"
+
+          echo "Fetching latest scan for Project ID: $PROJECT_ID"
+          SCANS_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/scans?project-id=${PROJECT_ID}&scan-status=Completed&sort=-created&limit=1" \
+            --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
+
+          SCAN_ID=$(echo "$SCANS_RESPONSE" | jq -r '.scans[0].id')
+
+          if [ -z "$SCAN_ID" ] || [ "$SCAN_ID" == "null" ]; then
+            echo "::error::Could not find latest completed Scan ID. Response: $SCANS_RESPONSE"
+            exit 1
+          fi
+          
+          echo "✅ Found latest Scan ID: $SCAN_ID"
+          echo "scan-id=${SCAN_ID}" >> $GITHUB_OUTPUT
+
+      # Step 7: Request the SCA Export using the extracted Scan ID
       - name: Request SCA Export (SBOM)
         id: sca-export-request
         run: |
-          echo "Requesting SCA Export for Scan ID: ${{ steps.checkmarx-scan.outputs.scan-id }}"
+          echo "Requesting SCA Export for Scan ID: ${{ steps.get-scan-id.outputs.scan-id }}"
           EXPORT_RESPONSE=$(curl --silent --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
           --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}' \
           --header 'Content-Type: application/json' \
           --data '{
-              "scanId":"${{ steps.checkmarx-scan.outputs.scan-id }}",
+              "scanId":"${{ steps.get-scan-id.outputs.scan-id }}",
               "fileFormat": "CycloneDxJson"
           }')
 
@@ -474,7 +479,7 @@ jobs:
             exit 1
           fi
 
-      # Step 7: Wait and then get the file URL for the exported report
+      # Step 8: Wait and then get the file URL for the exported report
       - name: Get Export Status and File URL
         id: get-file-url
         run: |
@@ -494,7 +499,7 @@ jobs:
             echo "fileUrl=" >> $GITHUB_OUTPUT
           fi
 
-      # Step 8: Download the CycloneDX report file
+      # Step 9: Download the CycloneDX report file
       - name: Download CycloneDX Report
         if: steps.get-file-url.outputs.fileUrl != ''
         run: |
@@ -504,7 +509,7 @@ jobs:
           -o cyclonedx-report.json
           echo "✅ Download complete. Saved as cyclonedx-report.json"
 
-      # Step 9: Upload the CycloneDX report as a pipeline artifact
+      # Step 10: Upload the CycloneDX report as a pipeline artifact
       - name: Upload CycloneDX Report as Artifact
         if: ${{ always() && hashFiles('cyclonedx-report.json') != '' }}
         uses: actions/upload-artifact@v4
