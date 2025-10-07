@@ -393,31 +393,78 @@ jobs:
       - name: Verify Access Token
         run: |
           echo "Verifying the token from the previous step..."
-          # GitHub masks the raw token value in logs, so it will appear as '***'.
-          echo "Using token: ${{ steps.cx-login.outputs.token }}"
-          
-          # To confirm the token is not empty, we check its length.
           TOKEN_VALUE="${{ steps.cx-login.outputs.token }}"
           TOKEN_LENGTH=${#TOKEN_VALUE}
-          
           echo "Token length is: $TOKEN_LENGTH"
-          
-          if [ "$TOKEN_LENGTH" -gt 50 ]; then
-            echo "✅ Verification successful: Token has a valid length."
-          else
+          if [ "$TOKEN_LENGTH" -lt 50 ]; then
             echo "❌ Verification failed: Token appears to be empty or too short."
             exit 1
           fi
+          echo "✅ Verification successful: Token has a valid length."
           
-      # Step 4: Request SCA Export using the Access Token
-      - name: Request SCA Export
+      # Step 4: Request SCA Export and get Export ID
+      - name: Request SCA Export and Store Export ID
+        id: sca-export-request
         run: |
           echo "Requesting SCA Export with the obtained token..."
-          curl --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
+          EXPORT_RESPONSE=$(curl --silent --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
           --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}' \
           --header 'Content-Type: application/json' \
           --data '{
               "scanId":"6d259dfc-bf54-4533-a120-446528d3d9c1",
               "fileFormat": "CycloneDxJson"
-          }'
+          }')
+
+          if echo "$EXPORT_RESPONSE" | jq -e '.exportId' > /dev/null; then
+            echo "✅ Export request successful!"
+            EXPORT_ID=$(echo "$EXPORT_RESPONSE" | jq -r .exportId)
+            echo "Export ID received: $EXPORT_ID"
+            echo "exportId=${EXPORT_ID}" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Export request failed!"
+            echo "Response from server: $EXPORT_RESPONSE"
+            exit 1
+          fi
+
+      # Step 5: Get Export Status and File URL
+      - name: Get Export Status and File URL
+        id: get-file-url
+        run: |
+          echo "Waiting 10 seconds for the export to be ready..."
+          sleep 10
+          echo "Checking export status for ID: ${{ steps.sca-export-request.outputs.exportId }}"
+          
+          STATUS_RESPONSE=$(curl --silent --location 'https://sng.ast.checkmarx.net/api/sca/export/requests?exportId=${{ steps.sca-export-request.outputs.exportId }}' \
+          --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
+
+          # Check if 'fileUrl' exists and is not null or empty
+          FILE_URL=$(echo "$STATUS_RESPONSE" | jq -r .fileUrl)
+          if [ -n "$FILE_URL" ] && [ "$FILE_URL" != "null" ]; then
+            echo "✅ File URL is ready!"
+            echo "fileUrl=${FILE_URL}" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ File URL not ready yet or request failed."
+            echo "Full response: $STATUS_RESPONSE"
+            # We pass an empty string to avoid breaking subsequent steps
+            echo "fileUrl=" >> $GITHUB_OUTPUT
+          fi
+
+      # Step 6: Display the retrieved File URL
+      - name: Display File URL
+        run: |
+          echo "The retrieved file URL is:"
+          # The full URL will be masked in the log for security
+          echo "${{ steps.get-file-url.outputs.fileUrl }}"
+
+          # Verify the URL's length to confirm it's not empty
+          URL_VALUE="${{ steps.get-file-url.outputs.fileUrl }}"
+          URL_LENGTH=${#URL_VALUE}
+          echo "URL Length is: $URL_LENGTH"
+
+          if [ "$URL_LENGTH" -gt 20 ]; then
+            echo "✅ URL was retrieved successfully."
+          else
+            echo "❌ Failed to retrieve a valid URL. The export might need more time to complete."
+            # exit 1 # You can uncomment this to make the job fail if the URL is not found
+          fi
 
