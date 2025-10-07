@@ -349,39 +349,75 @@
 
 # This workflow is for testing the Checkmarx login process.
 # It can be triggered manually from the Actions tab in GitHub.
-name: Test Checkmarx Login
+name: Checkmarx Scan and SBOM Export
 
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch: # Allows manual triggering
 
+permissions:
+  contents: read
+  actions: read
+  security-events: write # Required for uploading SARIF results
+
 jobs:
-  test-login:
+  checkmarx-and-export-sbom:
     runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout the repository's code (good practice)
+      # Step 1: Checkout the repository's code
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Step 2: Attempt to log in to Checkmarx and store the token
-      # We give this step an ID to reference its output in later steps.
-      - name: Login to Checkmarx and Store Token
-        id: cx-login # ID for this step
+      # Step 2: Run the Checkmarx One scan and create a SARIF file
+      # We give this step an ID to capture its 'scan-id' output.
+      - name: Checkmarx One Scan
+        id: checkmarx-scan # ID for this step
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: fluk-test
+          cx_tenant: nfr-fusionadvantec-sg
+          base_uri: https://sng.ast.checkmarx.net/
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          additional_params: >-
+            --report-format sarif
+            --output-path .
+            --output-name cx_result
+
+      # Step 3: Upload the SARIF file to GitHub Code Scanning
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cx_result.sarif
+
+      # Step 4: Upload the SARIF file as a downloadable artifact
+      - name: Upload Checkmarx SARIF (artifact)
+        if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF-Checkmarx
+          path: cx_result.sarif
+          retention-days: 30
+
+      # --- SBOM Export Steps ---
+
+      # Step 5: Log in to Checkmarx using a refresh token to get an access token
+      - name: Login to Checkmarx for SBOM Export
+        id: cx-login
         run: |
-          echo "Attempting to get access token from Checkmarx..."
-          
-          # Execute the curl command to get a token
+          echo "Attempting to get access token for SBOM export..."
           TOKEN_RESPONSE=$(curl --silent --location 'https://sng.iam.checkmarx.net/auth/realms/nfr-fusionadvantec-sg/protocol/openid-connect/token' \
           --header 'Content-Type: application/x-www-form-urlencoded' \
           --data-urlencode 'grant_type=refresh_token' \
           --data-urlencode 'client_id=ast-app' \
           --data-urlencode 'refresh_token=${{ secrets.CX_REFRESH_TOKEN }}')
           
-          # Check if the response contains the 'access_token'
           if echo "$TOKEN_RESPONSE" | jq -e '.access_token' > /dev/null; then
             echo "✅ Login successful! Storing token."
-            # Extract the access token using jq
             ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r .access_token)
-            # Make the token available to subsequent steps
             echo "token=${ACCESS_TOKEN}" >> $GITHUB_OUTPUT
           else
             echo "❌ Login failed!"
@@ -389,29 +425,16 @@ jobs:
             exit 1
           fi
 
-      # Step 3: Verify the stored access token
-      - name: Verify Access Token
-        run: |
-          echo "Verifying the token from the previous step..."
-          TOKEN_VALUE="${{ steps.cx-login.outputs.token }}"
-          TOKEN_LENGTH=${#TOKEN_VALUE}
-          echo "Token length is: $TOKEN_LENGTH"
-          if [ "$TOKEN_LENGTH" -lt 50 ]; then
-            echo "❌ Verification failed: Token appears to be empty or too short."
-            exit 1
-          fi
-          echo "✅ Verification successful: Token has a valid length."
-          
-      # Step 4: Request SCA Export and get Export ID
-      - name: Request SCA Export and Store Export ID
+      # Step 6: Request the SCA Export using the Scan ID from the initial scan step
+      - name: Request SCA Export (SBOM)
         id: sca-export-request
         run: |
-          echo "Requesting SCA Export with the obtained token..."
+          echo "Requesting SCA Export for Scan ID: ${{ steps.checkmarx-scan.outputs.scan-id }}"
           EXPORT_RESPONSE=$(curl --silent --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
           --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}' \
           --header 'Content-Type: application/json' \
           --data '{
-              "scanId":"6d259dfc-bf54-4533-a120-446528d3d9c1",
+              "scanId":"${{ steps.checkmarx-scan.outputs.scan-id }}",
               "fileFormat": "CycloneDxJson"
           }')
 
@@ -426,39 +449,27 @@ jobs:
             exit 1
           fi
 
-      # Step 5: Get Export Status and File URL
+      # Step 7: Wait and then get the file URL for the exported report
       - name: Get Export Status and File URL
         id: get-file-url
         run: |
           echo "Waiting 15 seconds for the export to be ready..."
           sleep 15
           echo "Checking export status for ID: ${{ steps.sca-export-request.outputs.exportId }}"
-          
           STATUS_RESPONSE=$(curl --silent --location 'https://sng.ast.checkmarx.net/api/sca/export/requests?exportId=${{ steps.sca-export-request.outputs.exportId }}' \
           --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
 
-          # Check if 'fileUrl' exists and is not null or empty
           FILE_URL=$(echo "$STATUS_RESPONSE" | jq -r .fileUrl)
           if [ -n "$FILE_URL" ] && [ "$FILE_URL" != "null" ]; then
             echo "✅ File URL is ready!"
             echo "fileUrl=${FILE_URL}" >> $GITHUB_OUTPUT
           else
-            echo "⚠️ File URL not ready yet or request failed."
+            echo "⚠️ File URL not ready yet or request failed. The report might still be generating."
             echo "Full response: $STATUS_RESPONSE"
-            # We pass an empty string to avoid breaking subsequent steps
             echo "fileUrl=" >> $GITHUB_OUTPUT
           fi
 
-      # Step 6: Display the retrieved File URL
-      - name: Display File URL
-        if: steps.get-file-url.outputs.fileUrl != ''
-        run: |
-          echo "The retrieved file URL is valid."
-          URL_VALUE="${{ steps.get-file-url.outputs.fileUrl }}"
-          URL_LENGTH=${#URL_VALUE}
-          echo "URL Length is: $URL_LENGTH"
-
-      # Step 7: Download the report file
+      # Step 8: Download the CycloneDX report file
       - name: Download CycloneDX Report
         if: steps.get-file-url.outputs.fileUrl != ''
         run: |
@@ -468,12 +479,12 @@ jobs:
           -o cyclonedx-report.json
           echo "✅ Download complete. Saved as cyclonedx-report.json"
 
-      # Step 8: Upload report as a pipeline artifact
-      - name: Upload Report as Artifact
+      # Step 9: Upload the CycloneDX report as a pipeline artifact
+      - name: Upload CycloneDX Report as Artifact
         if: ${{ always() && hashFiles('cyclonedx-report.json') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: CycloneDX-Report
           path: cyclonedx-report.json
-          retention-days: 5
+          retention-days: 30
 
