@@ -377,8 +377,8 @@ jobs:
         id: checkmarx-scan
         run: |
           echo "Starting Checkmarx scan and capturing output..."
-          # We run the CLI via Docker and use 'tee' to save the output to 'scan_output.log'
-          docker run --rm --tty \
+          # We run the CLI via Docker, redirect stderr to stdout, and use 'tee' to save all output to 'scan_output.log'
+          docker run --rm \
             -v $(pwd):/app/src \
             -w /app/src \
             -e CX_CLIENT_ID='${{ secrets.CX_CLIENT_ID }}' \
@@ -389,11 +389,14 @@ jobs:
             scan create --project-name fluk-test --branch ${{ github.ref_name }} -s . \
             --report-format sarif \
             --output-path . \
-            --output-name cx_result | tee scan_output.log
+            --output-name cx_result 2>&1 | tee scan_output.log
 
           # Verify that the scan created the SARIF file
           if [ ! -f "cx_result.sarif" ]; then
             echo "::error::Checkmarx scan did not produce the expected SARIF file (cx_result.sarif)."
+            echo "--- Full scan log for debugging ---"
+            cat scan_output.log
+            echo "-----------------------------------"
             exit 1
           fi
 
@@ -509,4 +512,5 @@ jobs:
           name: CycloneDX-Report
           path: cyclonedx-report.json
           retention-days: 30
+
 
