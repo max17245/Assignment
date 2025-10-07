@@ -154,108 +154,7 @@
 #           retention-days: 30
 
 ############
-# name: Checkmarx → Code Scanning + SBOM
-
-# on:
-#   push:
-#     branches: [ main ]
-#   pull_request:
-#     branches: [ main ]
-
-# permissions:
-#   contents: read
-#   actions: read
-#   security-events: write
-
-# jobs:
-#   checkmarx:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v4
-
-#       # 1) สแกนและสร้าง SARIF
-#       - name: Checkmarx One CLI (SARIF)
-#         uses: checkmarx/ast-github-action@main
-#         with:
-#           project_name: fluk-test
-#           cx_tenant: nfr-fusionadvantec-sg
-#           base_uri: https://sng.ast.checkmarx.net/
-#           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
-#           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-#           additional_params: >-
-#             --scan-types sca
-#             --report-format sarif
-#             --output-path $GITHUB_WORKSPACE
-#             --output-name cx_result
-
-#       - name: Post Upload SARIF to Code Scanning
-#         uses: github/codeql-action/upload-sarif@v3
-#         with:
-#           sarif_file: cx_result.sarif
-
-#       # 2) สร้าง SBOM: CycloneDX JSON
-#       - name: SBOM (CycloneDX JSON)
-#         uses: checkmarx/ast-github-action@main
-#         with:
-#           project_name: fluk-test
-#           cx_tenant: nfr-fusionadvantec-sg
-#           base_uri: https://sng.ast.checkmarx.net/
-#           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
-#           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-#           additional_params: >-
-#             --scan-types sca
-#             --report-format sbom
-#             --report-sbom-format CycloneDxJson
-#             --output-path $GITHUB_WORKSPACE
-#             --output-name sbom-cyclonedx
-
-#       # 3) สร้าง SBOM: SPDX JSON
-#       - name: SBOM (SPDX JSON)
-#         uses: checkmarx/ast-github-action@main
-#         with:
-#           project_name: fluk-test
-#           cx_tenant: nfr-fusionadvantec-sg
-#           base_uri: https://sng.ast.checkmarx.net/
-#           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
-#           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-#           additional_params: >-
-#             --scan-types sca
-#             --report-format sbom
-#             --report-sbom-format SpdxJson
-#             --output-path $GITHUB_WORKSPACE
-#             --output-name sbom-spdx
-
-#       # 4) แสดงไฟล์ที่ได้ (เพื่อดีบั๊กชื่อ/พาธ)
-#       - name: List generated files
-#         run: |
-#           echo "PWD: $(pwd)"
-#           ls -la
-#           echo "---- find sbom files ----"
-#           find . -maxdepth 2 -type f -name "sbom-*" -o -name "cx_result.*" -print
-
-#       # 5) อัปโหลด Artifact (ไม่ต้องใช้ hashFiles, ใช้ always + wildcard)
-#       # - name: Upload SBOM & SARIF Artifacts
-#       #   if: ${{ always() }}
-#       #   uses: actions/upload-artifact@v4
-#       #   with:
-#       #     name: Checkmarx-Reports
-#       #     path: |
-#       #       cx_result.sarif
-#       #       sbom-cyclonedx.json
-#       #       sbom-spdx.json
-#       #     retention-days: 30
-#       - name: Upload SBOM & SARIF Artifacts
-#         if: ${{ always() }}
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: Checkmarx-Reports
-#           path: |
-#             cx_result.sarif
-#             sbom-*_sbom.json
-#           retention-days: 30
-
-name: Checkmarx → Code Scanning + SBOM (no re-scan)
+name: Checkmarx → Code Scanning + SBOM
 
 on:
   push:
@@ -275,7 +174,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1) สแกนครั้งเดียว + สร้าง SARIF
+      # 1) สแกนและสร้าง SARIF
       - name: Checkmarx One CLI (SARIF)
         uses: checkmarx/ast-github-action@main
         with:
@@ -287,7 +186,7 @@ jobs:
           additional_params: >-
             --scan-types sca
             --report-format sarif
-            --output-path .
+            --output-path $GITHUB_WORKSPACE
             --output-name cx_result
 
       - name: Post Upload SARIF to Code Scanning
@@ -295,96 +194,57 @@ jobs:
         with:
           sarif_file: cx_result.sarif
 
-      # 2) ติดตั้ง AST CLI (ทนทานต่อการเปลี่ยนชื่อ asset)
-      - name: Install deps for CX CLI
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq unzip file
+      # 2) สร้าง SBOM: CycloneDX JSON
+      - name: SBOM (CycloneDX JSON)
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: fluk-test
+          cx_tenant: nfr-fusionadvantec-sg
+          base_uri: https://sng.ast.checkmarx.net/
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          additional_params: >-
+            --scan-types sca
+            --report-format sbom
+            --report-sbom-format CycloneDxJson
+            --output-path $GITHUB_WORKSPACE
+            --output-name sbom-cyclonedx
 
-      - name: Install Checkmarx AST CLI (latest, linux-amd64)
-        env:
-          GH_API: https://api.github.com/repos/Checkmarx/ast-cli/releases/latest
-        run: |
-          set -euo pipefail
-          url="$(curl -s "$GH_API" \
-                | jq -r '.assets[]?.browser_download_url
-                         | select(test("linux.*amd64"))' \
-                | head -n1)"
-          if [ -z "${url:-}" ]; then
-            echo "::error::Cannot find linux-amd64 asset from $GH_API"
-            exit 1
-          fi
-          echo "Downloading: $url"
-          curl -L "$url" -o cx.bin
-          # ตรวจชนิดไฟล์ แล้วแตกให้ถูกต้อง
-          t="$(file -b cx.bin)"
-          if echo "$t" | grep -qi 'gzip'; then
-            mv cx.bin cx.tgz && tar -xzf cx.tgz
-          elif echo "$t" | grep -qi 'zip'; then
-            mv cx.bin cx.zip && unzip -o cx.zip
-          else
-            # บาง release แจกไบนารีตรง ๆ
-            chmod +x cx.bin && mv cx.bin cx
-          fi
-          # ติดตั้งไบนารี cx (อยู่ในรูทที่แตก)
-          sudo install -m 0755 cx /usr/local/bin/cx
-          cx --version
+      # 3) สร้าง SBOM: SPDX JSON
+      - name: SBOM (SPDX JSON)
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: fluk-test
+          cx_tenant: nfr-fusionadvantec-sg
+          base_uri: https://sng.ast.checkmarx.net/
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          additional_params: >-
+            --scan-types sca
+            --report-format sbom
+            --report-sbom-format SpdxJson
+            --output-path $GITHUB_WORKSPACE
+            --output-name sbom-spdx
 
-      # 3) ดึง SBOM จาก last scan (ถ้ามี) – ไม่สแกนใหม่
-      - name: CX CLI Auth
-        env:
-          CX_BASE_URI: https://sng.ast.checkmarx.net/
-          CX_TENANT: nfr-fusionadvantec-sg
-          CX_CLIENT_ID: ${{ secrets.CX_CLIENT_ID }}
-          CX_CLIENT_SECRET: ${{ secrets.CX_CLIENT_SECRET }}
-        run: |
-          set -euo pipefail
-          cx configure set base-uri "$CX_BASE_URI"
-          cx configure set tenant "$CX_TENANT"
-          cx auth login --client-id "$CX_CLIENT_ID" --secret "$CX_CLIENT_SECRET"
-
-      - name: Export SBOM from last scan (CycloneDX & SPDX)
-        env:
-          PROJECT: fluk-test
-          BRANCH: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          # เช็คว่ามีสแกนเก่าหรือยัง
-          has_scan="$(cx results list --project-name "$PROJECT" --branch "$BRANCH" --format json | jq 'length>0')"
-          if [ "$has_scan" != "true" ]; then
-            echo "No previous scan found for project=$PROJECT branch=$BRANCH. Skipping SBOM export."
-            exit 0
-          fi
-
-          # Export CycloneDX JSON
-          cx results show --project-name "$PROJECT" \
-            --report-format sbom \
-            --report-sbom-format CycloneDxJson \
-            --output-path . \
-            --output-name sbom-cyclonedx \
-            --last-scan \
-            --branch "$BRANCH"
-
-          # Export SPDX JSON
-          cx results show --project-name "$PROJECT" \
-            --report-format sbom \
-            --report-sbom-format SpdxJson \
-            --output-path . \
-            --output-name sbom-spdx \
-            --last-scan \
-            --branch "$BRANCH"
-
-      # 4) แสดงไฟล์เพื่อยืนยัน
+      # 4) แสดงไฟล์ที่ได้ (เพื่อดีบั๊กชื่อ/พาธ)
       - name: List generated files
         run: |
           echo "PWD: $(pwd)"
           ls -la
-          echo "---- find reports ----"
-          find . -maxdepth 2 -type f \
-            \( -name "cx_result.sarif" -o -name "sbom-*_sbom.json" \) -print
+          echo "---- find sbom files ----"
+          find . -maxdepth 2 -type f -name "sbom-*" -o -name "cx_result.*" -print
 
-      # 5) อัปโหลด Artifact (ใช้ชื่อจริงที่ CLI สร้าง: *_sbom.json)
+      # 5) อัปโหลด Artifact (ไม่ต้องใช้ hashFiles, ใช้ always + wildcard)
+      # - name: Upload SBOM & SARIF Artifacts
+      #   if: ${{ always() }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: Checkmarx-Reports
+      #     path: |
+      #       cx_result.sarif
+      #       sbom-cyclonedx.json
+      #       sbom-spdx.json
+      #     retention-days: 30
       - name: Upload SBOM & SARIF Artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -392,9 +252,9 @@ jobs:
           name: Checkmarx-Reports
           path: |
             cx_result.sarif
-            sbom-cyclonedx_sbom.json
-            sbom-spdx_sbom.json
+            sbom-*_sbom.json
           retention-days: 30
+
 
 ##########
 # name: Checkmarx → Code Scanning + SBOM (no re-scan)
