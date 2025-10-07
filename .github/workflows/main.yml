@@ -408,3 +408,16 @@ jobs:
             echo "❌ Verification failed: Token appears to be empty or too short."
             exit 1
           fi
+          
+      # Step 4: Request SCA Export using the Access Token
+      - name: Request SCA Export
+        run: |
+          echo "Requesting SCA Export with the obtained token..."
+          curl --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
+          --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}' \
+          --header 'Content-Type: application/json' \
+          --data '{
+              "scanId":"6d259dfc-bf54-4533-a120-446528d3d9c1",
+              "fileFormat": "CycloneDxJson"
+          }'
+
