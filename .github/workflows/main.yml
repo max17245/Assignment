@@ -363,171 +363,123 @@ permissions:
 jobs:
   checkmarx:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    # 1) Run Checkmarx One และสร้างไฟล์ SARIF
-    - name: Checkmarx One CLI
-      id: cxscan
-      uses: checkmarx/ast-github-action@main
-      with:
-        project_name: fluk-test
-        cx_tenant: nfr-fusionadvantec-sg
-        base_uri: https://sng.ast.checkmarx.net/
-        cx_client_id: ${{ secrets.CX_CLIENT_ID }}
-        cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-        additional_params: >-
-          --report-format sarif
-          --output-path .
-          --output-name cx_result
-          --debug
+      # 1) Run Checkmarx และสร้าง SARIF (action นี้มี output scan-id)
+      - name: Checkmarx One CLI
+        id: cxscan
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: fluk-test
+          cx_tenant: nfr-fusionadvantec-sg
+          base_uri: https://sng.ast.checkmarx.net/
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          additional_params: >-
+            --report-format sarif
+            --output-path .
+            --output-name cx_result
 
-    # 2) Extract scanId หลังจบสแกน
-    #    พยายามหา "scanId":"<uuid>" ก่อน ถ้าไม่เจอค่อย fallback เป็น UUID แรกที่โผล่ในไฟล์
-    - name: Get Scan ID
-      id: get-scan-id
-      shell: bash
-      run: |
-        sudo apt-get update -y >/dev/null 2>&1 || true
-        sudo apt-get install -y jq >/dev/null 2>&1 || true
+      # 2) ยืนยันว่าได้ scan-id จาก output (และโชว์ไว้ใน log)
+      - name: Echo scan id
+        run: |
+          echo "Scan ID: ${{ steps.cxscan.outputs.scan-id }}"
 
-        scan_id=$(
-          grep -oE '"scanId"\s*:\s*"[0-9a-fA-F-]{36}"' cx_result.sarif \
-          | head -1 \
-          | sed -E 's/.*"([0-9a-fA-F-]{36})".*/\1/'
-        )
-
-        if [ -z "$scan_id" ]; then
-          scan_id=$(grep -oE '[0-9a-fA-F-]{36}' cx_result.sarif | head -1)
-        fi
-
-        if [ -z "$scan_id" ]; then
-          echo "ไม่พบ scanId ใน cx_result.sarif" >&2
-          exit 1
-        fi
-
-        echo "scan_id=$scan_id" >> "$GITHUB_OUTPUT"
-        echo "Scan ID: $scan_id"
-
-    # 3) แลก refresh token -> access token
-    - name: Get Access Token
-      id: get-token
-      shell: bash
-      run: |
-        sudo apt-get update -y >/dev/null 2>&1 || true
-        sudo apt-get install -y jq >/dev/null 2>&1 || true
-
-        token=$(curl -s --location 'https://sng.iam.checkmarx.net/auth/realms/nfr-fusionadvantec-sg/protocol/openid-connect/token' \
-          --header 'Content-Type: application/x-www-form-urlencoded' \
-          --data-urlencode 'grant_type=refresh_token' \
-          --data-urlencode 'client_id=ast-app' \
-          --data-urlencode 'refresh_token=${{ secrets.CX_REFRESH_TOKEN }}' \
-          | jq -r '.access_token')
-
-        if [ -z "$token" ] || [ "$token" = "null" ]; then
-          echo "แลก access token ไม่สำเร็จ" >&2
-          exit 1
-        fi
-
-        echo "access_token=$token" >> "$GITHUB_OUTPUT"
-        echo "Access token acquired."
-
-    # 4) สร้าง Export Request (CycloneDxJson) ด้วย scanId
-    - name: Request CycloneDx Export
-      id: export-request
-      shell: bash
-      run: |
-        sudo apt-get update -y >/dev/null 2>&1 || true
-        sudo apt-get install -y jq >/dev/null 2>&1 || true
-
-        export_id=$(curl -s --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
-          --header "Authorization: Bearer ${{ steps.get-token.outputs.access_token }}" \
-          --header 'Content-Type: application/json' \
-          --data "{
-            \"scanId\": \"${{ steps.get-scan-id.outputs.scan_id }}\",
-            \"fileFormat\": \"CycloneDxJson\"
-          }" \
-          | jq -r '.exportId')
-
-        if [ -z "$export_id" ] || [ "$export_id" = "null" ]; then
-          echo "สร้าง export request ไม่สำเร็จ" >&2
-          exit 1
-        fi
-
-        echo "export_id=$export_id" >> "$GITHUB_OUTPUT"
-        echo "Export ID: $export_id"
-
-    # 5) Polling รอจนได้ fileUrl (เพราะ export ใช้เวลา)
-    - name: Wait for Export File URL
-      id: get-export-url
-      shell: bash
-      run: |
-        sudo apt-get update -y >/dev/null 2>&1 || true
-        sudo apt-get install -y jq >/dev/null 2>&1 || true
-
-        ATTEMPTS=20   # ~20 ครั้ง
-        SLEEP_SEC=10  # เว้น 10 วินาทีต่อครั้ง
-        file_url=""
-
-        for i in $(seq 1 $ATTEMPTS); do
-          echo "Checking export status... attempt $i/$ATTEMPTS"
-          resp=$(curl -s --location "https://sng.ast.checkmarx.net/api/sca/export/requests?exportId=${{ steps.export-request.outputs.export_id }}" \
-            --header "Authorization: Bearer ${{ steps.get-token.outputs.access_token }}")
-          file_url=$(echo "$resp" | jq -r '.fileUrl // empty')
-
-          if [ -n "$file_url" ]; then
-            echo "File URL ready: $file_url"
-            break
+      # 3) แลก refresh token -> access token
+      - name: Get Access Token
+        id: get-token
+        run: |
+          sudo apt-get update -y >/dev/null 2>&1 || true
+          sudo apt-get install -y jq >/dev/null 2>&1 || true
+          token=$(curl -s --location 'https://sng.iam.checkmarx.net/auth/realms/nfr-fusionadvantec-sg/protocol/openid-connect/token' \
+            --header 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=refresh_token' \
+            --data-urlencode 'client_id=ast-app' \
+            --data-urlencode 'refresh_token=${{ secrets.CX_REFRESH_TOKEN }}' \
+            | jq -r '.access_token')
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "แลก access token ไม่สำเร็จ" >&2
+            exit 1
           fi
-          sleep $SLEEP_SEC
-        done
+          echo "access_token=$token" >> $GITHUB_OUTPUT
 
-        if [ -z "$file_url" ]; then
-          echo "รอจนหมดเวลาก็ยังไม่พบ fileUrl" >&2
-          echo "Response ล่าสุด:"
-          echo "$resp"
-          exit 1
-        fi
+      # 4) ขอ Export SCA เป็น CycloneDxJson ด้วย scan-id ที่ได้
+      - name: Request CycloneDx Export
+        id: export-request
+        run: |
+          sudo apt-get install -y jq >/dev/null 2>&1 || true
+          export_id=$(curl -s --location 'https://sng.ast.checkmarx.net/api/sca/export/requests' \
+            --header "Authorization: Bearer ${{ steps.get-token.outputs.access_token }}" \
+            --header 'Content-Type: application/json' \
+            --data "{
+              \"scanId\": \"${{ steps.cxscan.outputs.scan-id }}\",
+              \"fileFormat\": \"CycloneDxJson\"
+            }" | jq -r '.exportId')
+          if [ -z "$export_id" ] || [ "$export_id" = "null" ]; then
+            echo "สร้าง export request ไม่สำเร็จ" >&2
+            exit 1
+          fi
+          echo "export_id=$export_id" >> $GITHUB_OUTPUT
+          echo "Export ID: $export_id"
 
-        echo "file_url=$file_url" >> "$GITHUB_OUTPUT"
+      # 5) Polling รอไฟล์พร้อม แล้วดึง fileUrl
+      - name: Wait for Export File URL
+        id: get-export-url
+        run: |
+          sudo apt-get install -y jq >/dev/null 2>&1 || true
+          ATTEMPTS=20
+          SLEEP_SEC=10
+          file_url=""
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Checking export status... $i/$ATTEMPTS"
+            resp=$(curl -s --location "https://sng.ast.checkmarx.net/api/sca/export/requests?exportId=${{ steps.export-request.outputs.export_id }}" \
+              --header "Authorization: Bearer ${{ steps.get-token.outputs.access_token }}")
+            file_url=$(echo "$resp" | jq -r '.fileUrl // empty')
+            if [ -n "$file_url" ]; then
+              echo "File URL ready."
+              break
+            fi
+            sleep $SLEEP_SEC
+          done
+          if [ -z "$file_url" ]; then
+            echo "ยังไม่พบ fileUrl หลังรอครบ" >&2
+            echo "$resp"
+            exit 1
+          fi
+          echo "file_url=$file_url" >> $GITHUB_OUTPUT
 
-    # 6) ดาวน์โหลด CycloneDx JSON
-    - name: Download CycloneDxJson
-      shell: bash
-      run: |
-        curl -sSL "${{ steps.get-export-url.outputs.file_url }}" \
-          --header "Authorization: Bearer ${{ steps.get-token.outputs.access_token }}" \
-          -o checkmarx_cyclonedx.json
+      # 6) ดาวน์โหลด CycloneDx JSON
+      - name: Download CycloneDxJson
+        run: |
+          curl -sSL "${{ steps.get-export-url.outputs.file_url }}" \
+            --header "Authorization: Bearer ${{ steps.get-token.outputs.access_token }}" \
+            -o checkmarx_cyclonedx.json
+          [ -s checkmarx_cyclonedx.json ] || (echo "ดาวน์โหลดไฟล์ไม่สำเร็จ/ไฟล์ว่าง" >&2; exit 1)
+          echo "Downloaded checkmarx_cyclonedx.json"
 
-        if [ ! -s checkmarx_cyclonedx.json ]; then
-          echo "ดาวน์โหลดไฟล์ไม่สำเร็จหรือไฟล์ว่าง" >&2
-          exit 1
-        fi
-        echo "Downloaded: checkmarx_cyclonedx.json"
+      # 7) อัปโหลด SARIF ไป Code Scanning
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cx_result.sarif
 
-    # 7) อัปโหลดไฟล์ SARIF ไป Code Scanning
-    - name: Upload SARIF to Code Scanning
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: cx_result.sarif
+      # 8) เก็บ Artifacts
+      - name: Upload Checkmarx SARIF (artifact)
+        if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF-Checkmarx
+          path: cx_result.sarif
+          retention-days: 30
 
-    # 8) เก็บ SARIF เป็น artifact
-    - name: Upload Checkmarx SARIF (artifact)
-      if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: SARIF-Checkmarx
-        path: cx_result.sarif
-        retention-days: 30
+      - name: Upload CycloneDxJson (artifact)
+        if: ${{ always() && hashFiles('checkmarx_cyclonedx.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: CycloneDxJson
+          path: checkmarx_cyclonedx.json
+          retention-days: 30
 
-    # 9) เก็บ CycloneDx JSON เป็น artifact
-    - name: Upload CycloneDxJson (artifact)
-      if: ${{ always() && hashFiles('checkmarx_cyclonedx.json') != '' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: CycloneDxJson
-        path: checkmarx_cyclonedx.json
-        retention-days: 30
 
