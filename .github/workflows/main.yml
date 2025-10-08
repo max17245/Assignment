@@ -375,7 +375,7 @@ jobs:
       - name: Checkmarx One Scan
         uses: checkmarx/ast-github-action@main
         with:
-          project_name: ${{ github.event.repository.name }}
+          project_name: max17245/Assignment
           cx_tenant: nfr-fusionadvantec-sg
           base_uri: https://sng.ast.checkmarx.net/
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
@@ -427,7 +427,7 @@ jobs:
       - name: Get Latest Scan ID via API
         id: get-scan-id
         run: |
-          PROJECT_NAME="${{ github.event.repository.name }}"
+          PROJECT_NAME="max17245/Assignment"
           echo "Fetching Project ID for project: $PROJECT_NAME"
           
           PROJECT_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/projects?name=${PROJECT_NAME}" \
