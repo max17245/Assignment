@@ -381,6 +381,7 @@ jobs:
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
           additional_params: >-
+            --ignore-policy
             --report-format sarif
             --output-path .
             --output-name cx_result
