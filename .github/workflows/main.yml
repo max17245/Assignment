@@ -380,25 +380,25 @@ jobs:
           base_uri: https://sng.ast.checkmarx.net/
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-          additional_params: >-
-            --report-format sarif
-            --output-path .
-            --output-name cx_result
+      #     additional_params: >-
+      #       --report-format sarif
+      #       --output-path .
+      #       --output-name cx_result
 
-      # Step 3: Upload the SARIF file to GitHub Code Scanning
-      - name: Upload SARIF to Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: cx_result.sarif
+      # # Step 3: Upload the SARIF file to GitHub Code Scanning
+      # - name: Upload SARIF to Code Scanning
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: cx_result.sarif
 
-      # Step 4: Upload the SARIF file as a downloadable artifact
-      - name: Upload Checkmarx SARIF (artifact)
-        if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: SARIF-Checkmarx
-          path: cx_result.sarif
-          retention-days: 30
+      # # Step 4: Upload the SARIF file as a downloadable artifact
+      # - name: Upload Checkmarx SARIF (artifact)
+      #   if: ${{ always() && hashFiles('cx_result.sarif') != '' }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: SARIF-Checkmarx
+      #     path: cx_result.sarif
+      #     retention-days: 30
 
       # --- SBOM Export Steps ---
 
@@ -445,8 +445,8 @@ jobs:
           LAST_SCAN_RESPONSE=$(curl --silent -X GET "https://sng.ast.checkmarx.net/api/projects/last-scan?project-ids=${PROJECT_ID}&limit=1" \
             --header 'Authorization: Bearer ${{ steps.cx-login.outputs.token }}')
 
-          # Use 'try' to handle non-array/unexpected responses gracefully
-          SCAN_ID=$(echo "$LAST_SCAN_RESPONSE" | jq -r 'try .[0].id')
+          # FIX: Handle object response instead of array. Extracts the first value from the object, then its 'id'.
+          SCAN_ID=$(echo "$LAST_SCAN_RESPONSE" | jq -r 'try (values[0].id)')
 
           if [ -z "$SCAN_ID" ] || [ "$SCAN_ID" == "null" ]; then
             echo "::error::Could not find latest Scan ID using /last-scan endpoint. Response: $LAST_SCAN_RESPONSE"
@@ -518,4 +518,3 @@ jobs:
           name: CycloneDX-Report
           path: cyclonedx-report.json
           retention-days: 30
-
