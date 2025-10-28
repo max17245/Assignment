@@ -739,8 +739,10 @@ jobs:
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
           additional_params: |
-            --report-format sarif \
-            --output-path . \
-            --output-name ${{ github.event.repository.name }} \
-            --containers-local-resolution \
-            --container-images "python:3.14.0b3-bookworm" \
+            # --report-format sarif \
+            # --output-path . \
+            # --output-name ${{ github.event.repository.name }} \
+            # --containers-local-resolution \
+            # --container-images "python:3.14.0b3-bookworm" \
+            --scan-types container-security \
+            --container-images “python:3.14.0b3-bookworm”
