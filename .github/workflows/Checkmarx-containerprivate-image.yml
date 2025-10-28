@@ -36,7 +36,7 @@ jobs:
           docker pull "${IMAGE_NAME}:${IMAGE_TAG}"
 
       - name: Run Checkmarx One (Container Security)
-        uses: Checkmarx/ast-github-action@v2
+        uses: Checkmarx/ast-github-action@2.3.27
         with:
           base_uri: ${{ secrets.CX_BASE_URI }}      # เช่น https://sng.ast.checkmarx.net
           cx_tenant: ${{ secrets.CX_TENANT }}
