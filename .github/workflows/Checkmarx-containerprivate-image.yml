@@ -1,0 +1,62 @@
+name: Checkmarx Container Scan - sorakith/nginx-private
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag ของอิมเมจ (ค่าเริ่มต้น: latest)"
+        required: false
+        default: "latest"
+  push:
+    branches: [ "main" ]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # อัปโหลด SARIF ไป GitHub Security
+
+    env:
+      # ตั้งค่า registry & credential สำหรับ Docker Hub (private)
+      REGISTRIES: "docker.io"
+      USERNAME_DOCKER_IO: ${{ secrets.DOCKERHUB_USERNAME }}
+      PASSWORD_DOCKER_IO: ${{ secrets.DOCKERHUB_TOKEN }}
+      # อิมเมจที่จะสแกน (ชี้ไปที่ repo ที่ให้มา)
+      IMAGE_NAME: "docker.io/sorakith/nginx-private"
+      IMAGE_TAG:  ${{ inputs.image_tag || 'latest' }}
+
+    steps:
+      - name: Checkout (optional)
+        uses: actions/checkout@v4
+
+      - name: Docker login & pre-pull (optional sanity check)
+        run: |
+          echo "${PASSWORD_DOCKER_IO}" | docker login -u "${USERNAME_DOCKER_IO}" --password-stdin docker.io
+          docker pull "${IMAGE_NAME}:${IMAGE_TAG}"
+
+      - name: Run Checkmarx One (Container Security)
+        uses: Checkmarx/ast-github-action@v2
+        with:
+          base_uri: ${{ secrets.CX_BASE_URI }}      # เช่น https://sng.ast.checkmarx.net
+          cx_tenant: ${{ secrets.CX_TENANT }}
+          cx_client_id: ${{ secrets.CX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
+          project_name: ${{ github.repository }}-containers
+          branch: ${{ github.ref_name }}
+          additional_params: >
+            --scan-types container-security
+            --containers-local-resolution
+            --container-images "${IMAGE_NAME}:${IMAGE_TAG}"
+            --report-format sarif
+            --output-path .
+        env:
+          # ส่ง env สำหรับรีจิสทรีเข้าไปให้ตัว action ใช้งาน
+          REGISTRIES: ${{ env.REGISTRIES }}
+          USERNAME_DOCKER_IO: ${{ env.USERNAME_DOCKER_IO }}
+          PASSWORD_DOCKER_IO: ${{ env.PASSWORD_DOCKER_IO }}
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: cx_result.sarif
