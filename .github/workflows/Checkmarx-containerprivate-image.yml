@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Tag ของอิมเมจ (ค่าเริ่มต้น: latest)"
+        description: "1.29.2-perl"
         required: false
         default: "1.29.2-perl"
   push:
