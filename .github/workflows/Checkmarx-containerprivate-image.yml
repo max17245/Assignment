@@ -38,11 +38,11 @@ jobs:
       - name: Run Checkmarx One (Container Security)
         uses: Checkmarx/ast-github-action@2.3.27
         with:
-          base_uri: sng.ast.checkmarx.net     # เช่น https://sng.ast.checkmarx.net
-          cx_tenant: ${{ secrets.CX_TENANT }}
+          base_uri: https://sng.ast.checkmarx.net/     # เช่น https://sng.ast.checkmarx.net
+          cx_tenant: nfr-fusionadvantec-sg
           cx_client_id: ${{ secrets.CX_CLIENT_ID }}
           cx_client_secret: ${{ secrets.CX_CLIENT_SECRET }}
-          project_name: ${{ github.repository }}-containers
+          project_name: max17245/Assignment
           branch: ${{ github.ref_name }}
           additional_params: >
             --scan-types container-security
