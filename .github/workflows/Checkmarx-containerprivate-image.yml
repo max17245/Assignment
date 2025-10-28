@@ -24,7 +24,7 @@ jobs:
       PASSWORD_DOCKER_IO: ${{ secrets.DOCKERHUB_TOKEN }}
       # อิมเมจที่จะสแกน (ชี้ไปที่ repo ที่ให้มา)
       IMAGE_NAME: "docker.io/sorakith/nginx-private"
-      IMAGE_TAG:  ${{ inputs.image_tag || 'latest' }}
+      IMAGE_TAG:  ${{ inputs.image_tag || '1.29.2-perl' }}
 
     steps:
       - name: Checkout (optional)
