@@ -102,7 +102,7 @@ jobs:
           cx_tenant: nfr-fusionadvantec-sg # This should be replaced by your tenant for Checkmarx One
           additional_params: >
             --scan-types container-security 
-            --container-images "${IMAGE_NAME}:${IMAGE_TAG}"
+            --container-images "sorakith/vulner-image:v1"
             
       # - name: Upload SARIF file
       #   uses: github/codeql-action/upload-sarif@v3
