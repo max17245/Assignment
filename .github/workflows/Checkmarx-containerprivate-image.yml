@@ -18,8 +18,8 @@ jobs:
       USERNAME_DOCKER_IO: ${{ secrets.DOCKERHUB_USERNAME }}
       PASSWORD_DOCKER_IO: ${{ secrets.DOCKERHUB_TOKEN }}
       # อิมเมจที่จะสแกน (ชี้ไปที่ repo ที่ให้มา)
-      IMAGE_NAME: "docker.io/sorakith/nginx-private"
-      IMAGE_TAG:  "1.29.2-perl"
+      IMAGE_NAME: "sorakith/vulner-image"
+      IMAGE_TAG:  "v1"
 
     steps:
       - name: Checkout (optional)
