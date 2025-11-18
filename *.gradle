@@ -1,0 +1,7 @@
+// extra.gradle - just an extra script to be picked up by SCA
+allprojects {
+    // Another vulnerable dependency declaration (Groovy DSL)
+    dependencies {
+        implementation "org.apache.logging.log4j:log4j-core:2.14.0"
+    }
+}
